@@ -1,44 +1,47 @@
 // Package config 提供配置管理功能
 //
 // 功能特点:
-//   - 支持从 YAML 文件加载配置
-//   - 配置热更新 (通过文件监视)
+//   - 支持从 YAML 文件加载配置 (基于 Viper)
+//   - 配置热更新 (通过 Viper WatchConfig)
 //   - 线程安全的配置读取
 //   - 支持配置变更监听
+//   - 支持环境变量覆盖 (前缀 APP_, 如 APP_LOG_LEVEL=debug)
 package config
 
 import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 
+	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
 
 // AppConfig 应用程序基础配置
 type AppConfig struct {
-	Name string `yaml:"name"` // 应用名称
-	Env  string `yaml:"env"`  // 运行环境
+	Name string `yaml:"name" mapstructure:"name"` // 应用名称
+	Env  string `yaml:"env" mapstructure:"env"`   // 运行环境
 }
 
 // LogConfig 日志配置
 type LogConfig struct {
-	Level        string `yaml:"level"`          // 日志级别
-	Format       string `yaml:"format"`         // 日志格式 (console/json)
-	Path         string `yaml:"path"`           // 日志文件路径
-	MaxSize      int    `yaml:"max_size"`       // 单个日志文件最大大小 (MB)
-	MaxAge       int    `yaml:"max_age"`        // 日志文件保留天数
-	MaxBackups   int    `yaml:"max_backups"`    // 保留的日志文件数量
-	Compress     bool   `yaml:"compress"`       // 是否压缩历史日志
-	LogToConsole bool   `yaml:"log_to_console"` // 是否输出到控制台
+	Level        string `yaml:"level" mapstructure:"level"`                   // 日志级别
+	Format       string `yaml:"format" mapstructure:"format"`                 // 日志格式 (console/json)
+	Path         string `yaml:"path" mapstructure:"path"`                     // 日志文件路径
+	MaxSize      int    `yaml:"max_size" mapstructure:"max_size"`             // 单个日志文件最大大小 (MB)
+	MaxAge       int    `yaml:"max_age" mapstructure:"max_age"`               // 日志文件保留天数
+	MaxBackups   int    `yaml:"max_backups" mapstructure:"max_backups"`       // 保留的日志文件数量
+	Compress     bool   `yaml:"compress" mapstructure:"compress"`             // 是否压缩历史日志
+	LogToConsole bool   `yaml:"log_to_console" mapstructure:"log_to_console"` // 是否输出到控制台
 }
 
 // Config 完整配置结构
 type Config struct {
-	App AppConfig `yaml:"app"` // 应用配置
-	Log LogConfig `yaml:"log"` // 日志配置
+	App AppConfig `yaml:"app" mapstructure:"app"` // 应用配置
+	Log LogConfig `yaml:"log" mapstructure:"log"` // 日志配置
 }
 
 // ConfigChangeCallback 配置变更回调函数
@@ -55,7 +58,7 @@ var (
 	callbacks       map[WatchKey]ConfigChangeCallback // 配置变更回调函数映射
 	callbackRWMutex sync.RWMutex                      // 回调函数表的读写锁
 	nextWatchKey    WatchKey                          // 下一个可用的 WatchKey
-	configPath      string                            // 配置文件路径
+	v               *viper.Viper                      // Viper 实例
 )
 
 // 默认配置值
@@ -103,11 +106,24 @@ func DefaultConfig() *Config {
 // 返回值:
 //   - error: 加载配置失败时返回错误
 func Init(path string) error {
-	configPath = path
 	callbacks = make(map[WatchKey]ConfigChangeCallback)
 
-	cfg, err := loadConfig(path)
-	if err != nil {
+	v = viper.New()
+	v.SetConfigFile(path)
+	v.SetConfigType("yaml")
+
+	setDefaults()
+
+	v.SetEnvPrefix("APP")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	if err := v.ReadInConfig(); err != nil {
+		return err
+	}
+
+	cfg := DefaultConfig()
+	if err := v.Unmarshal(cfg); err != nil {
 		return err
 	}
 
@@ -115,27 +131,18 @@ func Init(path string) error {
 	return nil
 }
 
-// loadConfig 从指定路径加载配置文件
-//
-// 参数:
-//   - path: 配置文件路径
-//
-// 返回值:
-//   - *Config: 加载后的配置对象
-//   - error: 加载失败时返回错误
-func loadConfig(path string) (*Config, error) {
-	cfg := DefaultConfig()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, err
-	}
-
-	return cfg, nil
+// setDefaults 设置 Viper 默认值
+func setDefaults() {
+	v.SetDefault("app.name", DefaultAppName)
+	v.SetDefault("app.env", DefaultAppEnv)
+	v.SetDefault("log.level", DefaultLogLevel)
+	v.SetDefault("log.format", DefaultLogFormat)
+	v.SetDefault("log.path", DefaultLogPath)
+	v.SetDefault("log.max_size", DefaultLogMaxSize)
+	v.SetDefault("log.max_age", DefaultLogMaxAge)
+	v.SetDefault("log.max_backups", DefaultLogMaxBackups)
+	v.SetDefault("log.compress", DefaultLogCompress)
+	v.SetDefault("log.log_to_console", DefaultLogToConsole)
 }
 
 // Get 获取当前配置
@@ -198,13 +205,13 @@ func triggerCallbacks(newCfg, oldCfg *Config) {
 	}
 }
 
-// updateConfig 重新加载配置文件并触发回调
+// reloadConfig 从 Viper 当前状态重新解析配置并触发回调
 //
 // 返回值:
-//   - error: 加载失败时返回错误
-func updateConfig() error {
-	newCfg, err := loadConfig(configPath)
-	if err != nil {
+//   - error: 解析失败时返回错误
+func reloadConfig() error {
+	newCfg := DefaultConfig()
+	if err := v.Unmarshal(newCfg); err != nil {
 		return err
 	}
 
@@ -222,12 +229,10 @@ func updateConfig() error {
 // 参数:
 //   - outputPath: 输出文件路径，为空时使用默认路径 "config.yaml"
 func GenerateConfig(outputPath string) {
-	// 如果未指定输出路径，使用默认路径
 	if outputPath == "" {
 		outputPath = "config.yaml"
 	}
 
-	// 使用配置包的默认配置生成 YAML
 	cfg := DefaultConfig()
 	data, err := cfg.ToYAML()
 	if err != nil {
@@ -235,7 +240,6 @@ func GenerateConfig(outputPath string) {
 		os.Exit(1)
 	}
 
-	// 写入配置文件
 	if err := os.WriteFile(outputPath, data, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to generate config file: %v\n", err)
 		os.Exit(1)

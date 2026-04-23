@@ -100,6 +100,5 @@ func main() {
 
 func cleanup() {
 	logger.Info("Cleaning up resources...")
-	config.StopWatcher()
 	logger.Sync()
 }
