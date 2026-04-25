@@ -1,12 +1,11 @@
 package logger
 
 import (
+	"go-template/internal/config"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
-
-	"go-template/internal/config"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -136,7 +135,7 @@ func buildLogger(cfg *config.LogConfig, level zap.AtomicLevel) (*zap.Logger, *za
 	}
 
 	core := zapcore.NewTee(cores...)
-	logger := zap.New(core, zap.AddCaller())
+	logger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
 
 	return logger, logger.Sugar(), writer, nil
 }

@@ -10,6 +10,7 @@ package config
 
 import (
 	"fmt"
+	nacos "go-template/internal/outsid"
 	"os"
 	"reflect"
 	"strings"
@@ -23,9 +24,10 @@ import (
 
 // AppConfig 应用程序基础配置
 type AppConfig struct {
-	Name  string `yaml:"name" mapstructure:"name"`   // 应用名称
-	Env   string `yaml:"env" mapstructure:"env"`     // 运行环境
-	Watch bool   `yaml:"watch" mapstructure:"watch"` // 是否监控配置文件变更
+	Name        string `yaml:"name" mapstructure:"name"`                 // 应用名称
+	Env         string `yaml:"env" mapstructure:"env"`                   // 运行环境
+	Watch       bool   `yaml:"watch" mapstructure:"watch"`               // 是否监控配置文件变更
+	EnableNacos bool   `yaml:"enable_nacos" mapstructure:"enable_nacos"` // 是否启用 Nacos
 }
 
 // LogConfig 日志配置
@@ -42,8 +44,12 @@ type LogConfig struct {
 
 // Config 完整配置结构
 type Config struct {
-	App AppConfig `yaml:"app" mapstructure:"app"` // 应用配置
-	Log LogConfig `yaml:"log" mapstructure:"log"` // 日志配置
+	App    AppConfig         `yaml:"app" mapstructure:"app"`     // 应用配置
+	Log    LogConfig         `yaml:"log" mapstructure:"log"`     // 日志配置
+	Nacos  nacos.NacosConfig `yaml:"nacos" mapstructure:"nacos"` // Nacos 配置
+	Secret struct {
+		Key string `yaml:"key" mapstructure:"key"` // 密钥
+	}
 }
 
 // ConfigChangeCallback 配置变更回调函数
@@ -65,16 +71,18 @@ var (
 
 // 默认配置值
 const (
-	DefaultAppName       = "app"          // 默认应用名称
-	DefaultAppEnv        = "dev"          // 默认运行环境
-	DefaultLogLevel      = "info"         // 默认日志级别
-	DefaultLogFormat     = "console"      // 默认日志格式
-	DefaultLogPath       = "logs/app.log" // 默认日志路径
-	DefaultLogMaxSize    = 200            // 默认单个日志文件最大大小 (MB)
-	DefaultLogMaxAge     = 60             // 默认日志文件保留天数
-	DefaultLogMaxBackups = 60             // 默认保留的日志文件数量
-	DefaultLogCompress   = true           // 默认启用日志压缩
-	DefaultLogToConsole  = true           // 默认启用控制台输出
+	DefaultAppName        = "app"          // 默认应用名称
+	DefaultAppEnv         = "dev"          // 默认运行环境
+	DefaultAppWatch       = false          // 默认监控配置文件变更
+	DefaultAppEnableNacos = false          // 默认启用 Nacos
+	DefaultLogLevel       = "info"         // 默认日志级别
+	DefaultLogFormat      = "console"      // 默认日志格式
+	DefaultLogPath        = "logs/app.log" // 默认日志路径
+	DefaultLogMaxSize     = 200            // 默认单个日志文件最大大小 (MB)
+	DefaultLogMaxAge      = 60             // 默认日志文件保留天数
+	DefaultLogMaxBackups  = 60             // 默认保留的日志文件数量
+	DefaultLogCompress    = true           // 默认启用日志压缩
+	DefaultLogToConsole   = true           // 默认启用控制台输出
 )
 
 // DefaultConfig 返回默认配置
@@ -84,8 +92,10 @@ const (
 func DefaultConfig() *Config {
 	return &Config{
 		App: AppConfig{
-			Name: DefaultAppName,
-			Env:  DefaultAppEnv,
+			Name:        DefaultAppName,
+			Env:         DefaultAppEnv,
+			Watch:       DefaultAppWatch,
+			EnableNacos: DefaultAppEnableNacos,
 		},
 		Log: LogConfig{
 			Level:        DefaultLogLevel,
@@ -97,6 +107,7 @@ func DefaultConfig() *Config {
 			Compress:     DefaultLogCompress,
 			LogToConsole: DefaultLogToConsole,
 		},
+		Nacos: *nacos.DefaultConfig(),
 	}
 }
 
@@ -133,13 +144,39 @@ func Init(path string) error {
 		StartWatcher()
 	}
 	globalConfig.Store(cfg)
+	if cfg.App.EnableNacos {
+		nacos.Init(&cfg.Nacos, func(namespace, group, dataId, data string) {
+			updateConfig(data)
+		}, func(namespace, group, dataId, data string) {
+			updateConfig(data)
+		})
+	}
 	return nil
+}
+
+func updateConfig(data string) {
+	oldCfg := globalConfig.Load()
+	if oldCfg == nil {
+		return
+	}
+
+	newCfg := *oldCfg
+	if err := yaml.Unmarshal([]byte(data), &newCfg); err != nil {
+		return
+	}
+
+	if !reflect.DeepEqual(oldCfg, &newCfg) {
+		triggerCallbacks(&newCfg, oldCfg)
+		globalConfig.Store(&newCfg)
+	}
 }
 
 // setDefaults 设置 Viper 默认值
 func setDefaults() {
 	v.SetDefault("app.name", DefaultAppName)
 	v.SetDefault("app.env", DefaultAppEnv)
+	v.SetDefault("app.watch", DefaultAppWatch)
+	v.SetDefault("app.enable_nacos", DefaultAppEnableNacos)
 	v.SetDefault("log.level", DefaultLogLevel)
 	v.SetDefault("log.format", DefaultLogFormat)
 	v.SetDefault("log.path", DefaultLogPath)
@@ -218,6 +255,16 @@ func reloadConfig() error {
 	newCfg := DefaultConfig()
 	if err := v.Unmarshal(newCfg); err != nil {
 		return err
+	}
+	if newCfg.App.EnableNacos {
+		content, err := nacos.GetConfigContent()
+		if err != nil {
+			return err
+		}
+		err = yaml.Unmarshal([]byte(content), newCfg)
+		if err != nil {
+			fmt.Printf("nacos config unmarshal failed: %v\n", err)
+		}
 	}
 
 	oldCfg := globalConfig.Swap(newCfg)

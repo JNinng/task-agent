@@ -18,10 +18,8 @@ func Run(ctx context.Context) error {
 	)
 
 	config.AddWatch(func(newCfg, oldCfg *config.Config) {
-		logger.Info("App config changed",
-			zap.String("new_name", newCfg.App.Name),
-			zap.String("new_env", newCfg.App.Env),
-		)
+		logger.Infof("old config: %v", oldCfg)
+		logger.Infof("new config: %v", newCfg)
 	})
 
 	ticker := time.NewTicker(5 * time.Second)

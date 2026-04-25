@@ -39,3 +39,4 @@ logs/
 # Config overrides
 configs/config.local.yaml
 build/config.yaml
+/cache/*
