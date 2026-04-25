@@ -79,10 +79,6 @@ func main() {
 		}
 	})
 
-	if _, err := config.StartWatcher(); err != nil {
-		logger.Warn("Failed to start config watcher", zap.Error(err))
-	}
-
 	ctx := signal.ContextWithShutdown(context.Background())
 
 	logger.Info("Application initialized",

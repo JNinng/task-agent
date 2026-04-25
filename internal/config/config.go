@@ -16,14 +16,16 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
 
 // AppConfig 应用程序基础配置
 type AppConfig struct {
-	Name string `yaml:"name" mapstructure:"name"` // 应用名称
-	Env  string `yaml:"env" mapstructure:"env"`   // 运行环境
+	Name  string `yaml:"name" mapstructure:"name"`   // 应用名称
+	Env   string `yaml:"env" mapstructure:"env"`     // 运行环境
+	Watch bool   `yaml:"watch" mapstructure:"watch"` // 是否监控配置文件变更
 }
 
 // LogConfig 日志配置
@@ -127,6 +129,9 @@ func Init(path string) error {
 		return err
 	}
 
+	if cfg.App.Watch {
+		StartWatcher()
+	}
 	globalConfig.Store(cfg)
 	return nil
 }
@@ -255,4 +260,20 @@ func GenerateConfig(outputPath string) {
 //   - error: 转换失败时返回错误
 func (c *Config) ToYAML() ([]byte, error) {
 	return yaml.Marshal(c)
+}
+
+var once sync.Once
+
+// StartWatcher 启动配置文件监控
+// 使用 Viper 内置的 WatchConfig 机制监听配置文件变更
+func StartWatcher() {
+	if v == nil {
+		return
+	}
+	once.Do(func() {
+		v.OnConfigChange(func(_ fsnotify.Event) {
+			reloadConfig()
+		})
+		v.WatchConfig()
+	})
 }

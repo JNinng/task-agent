@@ -1,6 +1,7 @@
 app:
   name: template-app
   env: dev
+  watch: true
 
 log:
   level: info
