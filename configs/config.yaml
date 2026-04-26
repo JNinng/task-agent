@@ -23,3 +23,6 @@ nacos:
   log_level: debug
   log_dir: logs
   cache_dir: cache
+
+secret:
+  key: ""
