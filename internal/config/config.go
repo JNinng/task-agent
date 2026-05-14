@@ -10,7 +10,6 @@ package config
 
 import (
 	"fmt"
-	nacos "go-template/internal/outsid"
 	"os"
 	"reflect"
 	"strings"
@@ -42,14 +41,44 @@ type LogConfig struct {
 	LogToConsole bool   `yaml:"log_to_console" mapstructure:"log_to_console"` // 是否输出到控制台
 }
 
+// NacosConfig Nacos 配置中心配置
+type NacosConfig struct {
+	Addr      string `yaml:"addr" mapstructure:"addr"`
+	Port      uint64 `yaml:"port" mapstructure:"port"`
+	Username  string `yaml:"username" mapstructure:"username"`
+	Password  string `yaml:"password" mapstructure:"password"`
+	Namespace string `yaml:"namespace" mapstructure:"namespace"`
+	Group     string `yaml:"group" mapstructure:"group"`
+	DataId    string `yaml:"data_id" mapstructure:"data_id"`
+	LogLevel  string `yaml:"log_level" mapstructure:"log_level"`
+	LogDir    string `yaml:"log_dir" mapstructure:"log_dir"`
+	CacheDir  string `yaml:"cache_dir" mapstructure:"cache_dir"`
+}
+
+// ObservabilityConfig 可观测性配置
+type ObservabilityConfig struct {
+	Enabled     bool          `yaml:"enabled" mapstructure:"enabled"`
+	Addr        string        `yaml:"addr" mapstructure:"addr"`
+	MetricsPath string        `yaml:"metrics_path" mapstructure:"metrics_path"`
+	HealthPath  string        `yaml:"health_path" mapstructure:"health_path"`
+	Tracing     TracingConfig `yaml:"tracing" mapstructure:"tracing"`
+}
+
+// TracingConfig 链路追踪配置
+type TracingConfig struct {
+	Enabled  bool   `yaml:"enabled" mapstructure:"enabled"`
+	Endpoint string `yaml:"endpoint" mapstructure:"endpoint"`
+}
+
 // Config 完整配置结构
 type Config struct {
-	App    AppConfig         `yaml:"app" mapstructure:"app"`     // 应用配置
-	Log    LogConfig         `yaml:"log" mapstructure:"log"`     // 日志配置
-	Nacos  nacos.NacosConfig `yaml:"nacos" mapstructure:"nacos"` // Nacos 配置
-	Secret struct {
-		Key string `yaml:"key" mapstructure:"key"` // 密钥
-	}
+	App           AppConfig           `yaml:"app" mapstructure:"app"`
+	Log           LogConfig           `yaml:"log" mapstructure:"log"`
+	Nacos         NacosConfig         `yaml:"nacos" mapstructure:"nacos"`
+	Observability ObservabilityConfig `yaml:"observability" mapstructure:"observability"`
+	Secret        struct {
+		Key string `yaml:"key" mapstructure:"key"`
+	} `yaml:"secret" mapstructure:"secret"`
 }
 
 // ConfigChangeCallback 配置变更回调函数
@@ -83,7 +112,59 @@ const (
 	DefaultLogMaxBackups  = 60             // 默认保留的日志文件数量
 	DefaultLogCompress    = true           // 默认启用日志压缩
 	DefaultLogToConsole   = true           // 默认启用控制台输出
+	DefaultObsAddr        = ":9090"
+	DefaultObsMetricsPath = "/metrics"
+	DefaultObsHealthPath  = "/health"
 )
+
+// DefaultAppConfig 返回默认应用配置
+func DefaultAppConfig() AppConfig {
+	return AppConfig{
+		Name:        DefaultAppName,
+		Env:         DefaultAppEnv,
+		Watch:       DefaultAppWatch,
+		EnableNacos: DefaultAppEnableNacos,
+	}
+}
+
+// DefaultLogConfig 返回默认日志配置
+func DefaultLogConfig() LogConfig {
+	return LogConfig{
+		Level:        DefaultLogLevel,
+		Format:       DefaultLogFormat,
+		Path:         DefaultLogPath,
+		MaxSize:      DefaultLogMaxSize,
+		MaxAge:       DefaultLogMaxAge,
+		MaxBackups:   DefaultLogMaxBackups,
+		Compress:     DefaultLogCompress,
+		LogToConsole: DefaultLogToConsole,
+	}
+}
+
+// DefaultObservabilityConfig 返回默认可观测性配置
+func DefaultObservabilityConfig() ObservabilityConfig {
+	return ObservabilityConfig{
+		Addr:        DefaultObsAddr,
+		MetricsPath: DefaultObsMetricsPath,
+		HealthPath:  DefaultObsHealthPath,
+	}
+}
+
+// DefaultNacosConfig 返回默认 Nacos 配置
+func DefaultNacosConfig() NacosConfig {
+	return NacosConfig{
+		Addr:      "127.0.0.1",
+		Port:      8848,
+		Username:  "nacos",
+		Password:  "nacos",
+		Namespace: "public",
+		Group:     "DEFAULT_GROUP",
+		DataId:    "application.yml",
+		LogLevel:  "debug",
+		LogDir:    "./logs",
+		CacheDir:  "./cache",
+	}
+}
 
 // DefaultConfig 返回默认配置
 //
@@ -91,23 +172,10 @@ const (
 //   - *Config: 包含所有默认值的配置对象
 func DefaultConfig() *Config {
 	return &Config{
-		App: AppConfig{
-			Name:        DefaultAppName,
-			Env:         DefaultAppEnv,
-			Watch:       DefaultAppWatch,
-			EnableNacos: DefaultAppEnableNacos,
-		},
-		Log: LogConfig{
-			Level:        DefaultLogLevel,
-			Format:       DefaultLogFormat,
-			Path:         DefaultLogPath,
-			MaxSize:      DefaultLogMaxSize,
-			MaxAge:       DefaultLogMaxAge,
-			MaxBackups:   DefaultLogMaxBackups,
-			Compress:     DefaultLogCompress,
-			LogToConsole: DefaultLogToConsole,
-		},
-		Nacos: *nacos.DefaultConfig(),
+		App:           DefaultAppConfig(),
+		Log:           DefaultLogConfig(),
+		Nacos:         DefaultNacosConfig(),
+		Observability: DefaultObservabilityConfig(),
 	}
 }
 
@@ -115,10 +183,12 @@ func DefaultConfig() *Config {
 //
 // 参数:
 //   - path: 配置文件路径
+//   - sources: 可选的外部配置源列表
 //
 // 返回值:
+//   - *Config: 初始化的配置对象
 //   - error: 加载配置失败时返回错误
-func Init(path string) error {
+func Init(path string, sources ...Source) (*Config, error) {
 	callbacks = make(map[WatchKey]ConfigChangeCallback)
 
 	v = viper.New()
@@ -132,36 +202,58 @@ func Init(path string) error {
 	v.AutomaticEnv()
 
 	if err := v.ReadInConfig(); err != nil {
-		return err
+		return nil, err
 	}
 
 	cfg := DefaultConfig()
 	if err := v.Unmarshal(cfg); err != nil {
-		return err
+		return nil, err
+	}
+
+	// 从外部配置源合并
+	for _, s := range sources {
+		content, changes, err := s.Init()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: source %s init failed: %v\n", s.Name(), err)
+			continue
+		}
+		if content != nil {
+			if err := yaml.Unmarshal(content, cfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: source %s content unmarshal failed: %v\n", s.Name(), err)
+			}
+		}
+		if changes != nil {
+			go watchSource(s.Name(), changes)
+		}
 	}
 
 	if cfg.App.Watch {
 		StartWatcher()
 	}
 	globalConfig.Store(cfg)
-	if cfg.App.EnableNacos {
-		nacos.Init(&cfg.Nacos, func(namespace, group, dataId, data string) {
-			updateConfig(data)
-		}, func(namespace, group, dataId, data string) {
-			updateConfig(data)
-		})
-	}
-	return nil
+	return cfg, nil
 }
 
-func updateConfig(data string) {
+// watchSource 监听外部配置源的变更
+func watchSource(name string, changes <-chan []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "Panic in source watcher %s: %v\n", name, r)
+		}
+	}()
+	for data := range changes {
+		updateConfig(data)
+	}
+}
+
+func updateConfig(data []byte) {
 	oldCfg := globalConfig.Load()
 	if oldCfg == nil {
 		return
 	}
 
 	newCfg := *oldCfg
-	if err := yaml.Unmarshal([]byte(data), &newCfg); err != nil {
+	if err := yaml.Unmarshal(data, &newCfg); err != nil {
 		return
 	}
 
@@ -185,6 +277,9 @@ func setDefaults() {
 	v.SetDefault("log.max_backups", DefaultLogMaxBackups)
 	v.SetDefault("log.compress", DefaultLogCompress)
 	v.SetDefault("log.log_to_console", DefaultLogToConsole)
+	v.SetDefault("observability.addr", DefaultObsAddr)
+	v.SetDefault("observability.metrics_path", DefaultObsMetricsPath)
+	v.SetDefault("observability.health_path", DefaultObsHealthPath)
 }
 
 // Get 获取当前配置
@@ -255,16 +350,6 @@ func reloadConfig() error {
 	newCfg := DefaultConfig()
 	if err := v.Unmarshal(newCfg); err != nil {
 		return err
-	}
-	if newCfg.App.EnableNacos {
-		content, err := nacos.GetConfigContent()
-		if err != nil {
-			return err
-		}
-		err = yaml.Unmarshal([]byte(content), newCfg)
-		if err != nil {
-			fmt.Printf("nacos config unmarshal failed: %v\n", err)
-		}
 	}
 
 	oldCfg := globalConfig.Swap(newCfg)

@@ -38,11 +38,11 @@ func main() {
 				os.Exit(0)
 			}
 
-			if err := config.Init(configPath); err != nil {
+			cfg, err := config.Init(configPath)
+			if err != nil {
 				return fmt.Errorf("failed to init config: %w", err)
 			}
 
-			cfg := config.Get()
 			if err := logger.Init(&cfg.Log); err != nil {
 				return fmt.Errorf("failed to init logger: %w", err)
 			}
