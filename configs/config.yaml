@@ -2,7 +2,6 @@ app:
   name: template-app
   env: dev
   watch: true
-  enable_nacos: true
 
 log:
   level: info
@@ -23,6 +22,15 @@ nacos:
   log_level: debug
   log_dir: logs
   cache_dir: cache
+
+observability:
+  enabled: false
+  addr: ":9090"
+  metrics_path: /metrics
+  health_path: /health
+  tracing:
+    enabled: false
+    endpoint: ""
 
 secret:
   key: ""

@@ -70,6 +70,6 @@ type mockSource struct {
 	ch      chan []byte
 }
 
-func (m *mockSource) Name() string              { return m.name }
+func (m *mockSource) Name() string                         { return m.name }
 func (m *mockSource) Init() ([]byte, <-chan []byte, error) { return m.content, m.ch, nil }
-func (m *mockSource) Close() error              { return nil }
+func (m *mockSource) Close() error                         { return nil }

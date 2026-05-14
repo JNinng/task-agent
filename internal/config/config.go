@@ -16,6 +16,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"go-template/internal/logger"
+
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
@@ -392,6 +394,20 @@ func GenerateConfig(outputPath string) {
 //   - error: 转换失败时返回错误
 func (c *Config) ToYAML() ([]byte, error) {
 	return yaml.Marshal(c)
+}
+
+// LoggerConfig 返回 logger.Config，用于初始化日志系统
+func (c *Config) LoggerConfig() logger.Config {
+	return logger.Config{
+		Level:        c.Log.Level,
+		Format:       c.Log.Format,
+		Path:         c.Log.Path,
+		MaxSize:      c.Log.MaxSize,
+		MaxAge:       c.Log.MaxAge,
+		MaxBackups:   c.Log.MaxBackups,
+		Compress:     c.Log.Compress,
+		LogToConsole: c.Log.LogToConsole,
+	}
 }
 
 var once sync.Once

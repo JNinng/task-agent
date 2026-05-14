@@ -1,7 +1,6 @@
 package logger
 
 import (
-	"go-template/internal/config"
 	"os"
 	"path/filepath"
 	"sync"
@@ -12,6 +11,44 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
+// Config 日志配置
+type Config struct {
+	Level        string `yaml:"level" mapstructure:"level"`                   // 日志级别
+	Format       string `yaml:"format" mapstructure:"format"`                 // 日志格式 (console/json)
+	Path         string `yaml:"path" mapstructure:"path"`                     // 日志文件路径
+	MaxSize      int    `yaml:"max_size" mapstructure:"max_size"`             // 单个日志文件最大大小 (MB)
+	MaxAge       int    `yaml:"max_age" mapstructure:"max_age"`               // 日志文件保留天数
+	MaxBackups   int    `yaml:"max_backups" mapstructure:"max_backups"`       // 保留的日志文件数量
+	Compress     bool   `yaml:"compress" mapstructure:"compress"`             // 是否压缩历史日志
+	LogToConsole bool   `yaml:"log_to_console" mapstructure:"log_to_console"` // 是否输出到控制台
+}
+
+// 默认日志配置常量
+const (
+	DefaultLevel        = "info"
+	DefaultFormat       = "console"
+	DefaultPath         = "logs/app.log"
+	DefaultMaxSize      = 200
+	DefaultMaxAge       = 60
+	DefaultMaxBackups   = 60
+	DefaultCompress     = true
+	DefaultLogToConsole = true
+)
+
+// DefaultConfig 返回默认日志配置
+func DefaultConfig() Config {
+	return Config{
+		Level:        DefaultLevel,
+		Format:       DefaultFormat,
+		Path:         DefaultPath,
+		MaxSize:      DefaultMaxSize,
+		MaxAge:       DefaultMaxAge,
+		MaxBackups:   DefaultMaxBackups,
+		Compress:     DefaultCompress,
+		LogToConsole: DefaultLogToConsole,
+	}
+}
+
 var (
 	globalLogger  atomic.Value
 	globalSugar   atomic.Value
@@ -21,7 +58,8 @@ var (
 	currentLogCfg atomic.Value
 )
 
-func Init(cfg *config.LogConfig) error {
+// Init 初始化日志系统
+func Init(cfg *Config) error {
 	atomicLevel = zap.NewAtomicLevelAt(getZapLevel(cfg.Level))
 
 	logger, sugar, writer, err := buildLogger(cfg, atomicLevel)
@@ -43,8 +81,9 @@ func Init(cfg *config.LogConfig) error {
 	return nil
 }
 
-func Reset(cfg *config.LogConfig) error {
-	oldCfg, ok := currentLogCfg.Load().(*config.LogConfig)
+// Reset 重置日志配置
+func Reset(cfg *Config) error {
+	oldCfg, ok := currentLogCfg.Load().(*Config)
 	if !ok {
 		return Init(cfg)
 	}
@@ -64,15 +103,17 @@ func Reset(cfg *config.LogConfig) error {
 	return nil
 }
 
+// SetLevel 动态设置日志级别
 func SetLevel(level string) {
 	atomicLevel.SetLevel(getZapLevel(level))
 }
 
+// GetLevel 获取当前日志级别
 func GetLevel() zapcore.Level {
 	return atomicLevel.Level()
 }
 
-func buildLogger(cfg *config.LogConfig, level zap.AtomicLevel) (*zap.Logger, *zap.SugaredLogger, *lumberjack.Logger, error) {
+func buildLogger(cfg *Config, level zap.AtomicLevel) (*zap.Logger, *zap.SugaredLogger, *lumberjack.Logger, error) {
 	fileEncoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "time",
 		LevelKey:       "level",
@@ -175,62 +216,77 @@ func getSugar() *zap.SugaredLogger {
 	return zap.NewNop().Sugar()
 }
 
+// Debug 输出 Debug 级别日志
 func Debug(msg string, fields ...zap.Field) {
 	getLogger().Debug(msg, fields...)
 }
 
+// Info 输出 Info 级别日志
 func Info(msg string, fields ...zap.Field) {
 	getLogger().Info(msg, fields...)
 }
 
+// Warn 输出 Warn 级别日志
 func Warn(msg string, fields ...zap.Field) {
 	getLogger().Warn(msg, fields...)
 }
 
+// Error 输出 Error 级别日志
 func Error(msg string, fields ...zap.Field) {
 	getLogger().Error(msg, fields...)
 }
 
+// DPanic 输出 DPanic 级别日志
 func DPanic(msg string, fields ...zap.Field) {
 	getLogger().DPanic(msg, fields...)
 }
 
+// Panic 输出 Panic 级别日志
 func Panic(msg string, fields ...zap.Field) {
 	getLogger().Panic(msg, fields...)
 }
 
+// Fatal 输出 Fatal 级别日志
 func Fatal(msg string, fields ...zap.Field) {
 	getLogger().Fatal(msg, fields...)
 }
 
+// Debugf 输出 Debug 级别格式化日志
 func Debugf(template string, args ...any) {
 	getSugar().Debugf(template, args...)
 }
 
+// Infof 输出 Info 级别格式化日志
 func Infof(template string, args ...any) {
 	getSugar().Infof(template, args...)
 }
 
+// Warnf 输出 Warn 级别格式化日志
 func Warnf(template string, args ...any) {
 	getSugar().Warnf(template, args...)
 }
 
+// Errorf 输出 Error 级别格式化日志
 func Errorf(template string, args ...any) {
 	getSugar().Errorf(template, args...)
 }
 
+// DPanicf 输出 DPanic 级别格式化日志
 func DPanicf(template string, args ...any) {
 	getSugar().DPanicf(template, args...)
 }
 
+// Panicf 输出 Panic 级别格式化日志
 func Panicf(template string, args ...any) {
 	getSugar().Panicf(template, args...)
 }
 
+// Fatalf 输出 Fatal 级别格式化日志
 func Fatalf(template string, args ...any) {
 	getSugar().Fatalf(template, args...)
 }
 
+// Sync 同步日志缓冲区
 func Sync() error {
 	return getLogger().Sync()
 }
