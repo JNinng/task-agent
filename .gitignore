@@ -40,3 +40,4 @@ logs/
 configs/config.local.yaml
 build/config.yaml
 /cache/*
+.claude/settings.local.json
