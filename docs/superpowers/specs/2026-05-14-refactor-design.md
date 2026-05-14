@@ -43,6 +43,21 @@ go-template/
 └── configs/config.yaml
 ```
 
+## 默认配置生成规则
+
+**所有配置类结构体** 必须提供 `DefaultConfig() *T` 方法返回带默认值的实例。
+
+涉及结构体：
+
+| 结构体 | 包 | 方法 |
+|--------|---|------|
+| `Config` | `config` | `DefaultConfig() *Config` (已有) |
+| `LogConfig` | `logger` | `DefaultConfig() *LogConfig` (新增) |
+| `ObservabilityConfig` / `TracingConfig` | `config` | `DefaultConfig() *ObservabilityConfig` (新增) |
+| `NacosConfig` | `nacos` | `DefaultConfig() *NacosConfig` (已有，迁移到新包) |
+
+`GenerateConfig(outputPath)` 通过 `config.DefaultConfig()` 获取完整默认配置树后序列化输出。
+
 ## Source 接口
 
 `internal/config/source.go`:
