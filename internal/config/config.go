@@ -354,12 +354,13 @@ func reloadConfig() error {
 		return err
 	}
 
-	oldCfg := globalConfig.Swap(newCfg)
+	oldCfg := globalConfig.Load()
 	if reflect.DeepEqual(newCfg, oldCfg) {
 		return nil
 	}
 
 	triggerCallbacks(newCfg, oldCfg)
+	globalConfig.Store(newCfg)
 	return nil
 }
 

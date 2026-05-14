@@ -37,6 +37,10 @@ func (s *source) Name() string { return "nacos" }
 //   - changes: 配置变更通知通道
 //   - err: 初始化失败时返回错误
 func (s *source) Init() ([]byte, <-chan []byte, error) {
+	if s.cfg == nil {
+		return nil, nil, errors.New("nacos config is nil")
+	}
+
 	changes := make(chan []byte, 8)
 
 	s.once.Do(func() {

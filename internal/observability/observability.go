@@ -32,14 +32,13 @@ func Start(ctx context.Context, cfg config.ObservabilityConfig) error {
 	}
 
 	// Initialize tracing
-	shutdown, err := tracing.Init(ctx, tracing.Config{
+	tracingShutdown, err := tracing.Init(ctx, tracing.Config{
 		Enabled:  cfg.Tracing.Enabled,
 		Endpoint: cfg.Tracing.Endpoint,
 	})
 	if err != nil {
 		logger.Warnf("Failed to init tracing: %v", err)
 	}
-	_ = shutdown
 
 	mux := http.NewServeMux()
 
@@ -54,6 +53,7 @@ func Start(ctx context.Context, cfg config.ObservabilityConfig) error {
 
 	go func() {
 		<-ctx.Done()
+		tracingShutdown()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		srv.Shutdown(shutdownCtx)

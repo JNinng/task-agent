@@ -14,8 +14,9 @@ const (
 )
 
 type CheckResult struct {
-	Status    Status `json:"status"`
-	Timestamp string `json:"timestamp"`
+	Status    Status            `json:"status"`
+	Timestamp string            `json:"timestamp"`
+	Details   map[string]string `json:"details,omitempty"`
 }
 
 type CheckFunc func() error
@@ -65,5 +66,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(CheckResult{
 		Status:    overall,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Details:   details,
 	})
 }

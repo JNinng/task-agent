@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"testing"
+
+	"go-template/internal/logger"
 )
 
 func TestObservabilityDefaultConfig(t *testing.T) {
@@ -16,6 +18,35 @@ func TestObservabilityDefaultConfig(t *testing.T) {
 	if cfg.HealthPath != "/health" {
 		t.Errorf("expected /health, got %s", cfg.HealthPath)
 	}
+}
+
+func TestLoggerConfigConversion(t *testing.T) {
+	cfg := DefaultConfig()
+	lc := cfg.LoggerConfig()
+	if lc.Level != DefaultLogLevel {
+		t.Errorf("expected %s, got %s", DefaultLogLevel, lc.Level)
+	}
+	if lc.Format != DefaultLogFormat {
+		t.Errorf("expected %s, got %s", DefaultLogFormat, lc.Format)
+	}
+	if lc.MaxSize != DefaultLogMaxSize {
+		t.Errorf("expected %d, got %d", DefaultLogMaxSize, lc.MaxSize)
+	}
+	if lc.MaxAge != DefaultLogMaxAge {
+		t.Errorf("expected %d, got %d", DefaultLogMaxAge, lc.MaxAge)
+	}
+	if lc.MaxBackups != DefaultLogMaxBackups {
+		t.Errorf("expected %d, got %d", DefaultLogMaxBackups, lc.MaxBackups)
+	}
+	if lc.Compress != DefaultLogCompress {
+		t.Errorf("expected %v, got %v", DefaultLogCompress, lc.Compress)
+	}
+	if lc.LogToConsole != DefaultLogToConsole {
+		t.Errorf("expected %v, got %v", DefaultLogToConsole, lc.LogToConsole)
+	}
+
+	// Verify type assertion: lc must be logger.Config type
+	_ = logger.Config(lc)
 }
 
 func TestInit(t *testing.T) {
