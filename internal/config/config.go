@@ -236,6 +236,46 @@ func Init(path string, sources ...Source) (*Config, error) {
 	return cfg, nil
 }
 
+// MergeSource 在 Init 之后合并外部配置源的内容
+//
+// 用于两阶段初始化场景：先用本地配置获取连接参数，再连接远程配置中心。
+// Nacos 的 addr/port/namespace 等从本地配置文件读取，业务配置从远程获取。
+//
+// 参数:
+//   - source: 外部配置源
+//
+// 返回值:
+//   - error: 合并失败时返回错误
+func MergeSource(source Source) error {
+	content, changes, err := source.Init()
+	if err != nil {
+		return err
+	}
+
+	oldCfg := globalConfig.Load()
+	if oldCfg == nil {
+		return fmt.Errorf("config not initialized, call Init first")
+	}
+
+	newCfg := *oldCfg
+	if content != nil {
+		if err := yaml.Unmarshal(content, &newCfg); err != nil {
+			return err
+		}
+	}
+
+	if !reflect.DeepEqual(*oldCfg, newCfg) {
+		triggerCallbacks(&newCfg, oldCfg)
+		globalConfig.Store(&newCfg)
+	}
+
+	if changes != nil {
+		go watchSource(source.Name(), changes)
+	}
+
+	return nil
+}
+
 // watchSource 监听外部配置源的变更
 func watchSource(name string, changes <-chan []byte) {
 	defer func() {
