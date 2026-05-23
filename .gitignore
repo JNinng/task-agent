@@ -33,7 +33,7 @@ bin/
 Thumbs.db
 
 # Logs
-logs/
+/logs/
 *.log
 
 # Config overrides
