@@ -1,0 +1,35 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "./alert.rules.yml"
+
+# 指标采集目标配置
+scrape_configs:
+  # 1. 采集 Prometheus 自身指标（监控监控系统本身）
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  # 2. 采集 Docker 容器指标（核心）
+  - job_name: "docker-containers"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # 3. 采集主机指标（补充容器运行环境监控）
+  - job_name: "node"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # 4. 采集 loki 指标
+  - job_name: "loki"
+    static_configs:
+      - targets: ["loki:3100"]
+
+# 告警配置（对接 Alertmanager 时启用，基础场景可省略）
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - 'alertmanager:9093'  # 若部署 Alertmanager，添加此地址

@@ -1,0 +1,140 @@
+services:
+  alloy:
+    image: grafana/alloy:v1.16.1
+    ports:
+      - "12345:12345"
+      - "4317:4317"
+      - "7318:4318"
+    volumes:
+      - ./alloy-config/config.alloy:/etc/alloy/config.alloy:ro
+      - ./alloy-data:/var/lib/alloy/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      LOKI_HOST: loki:3100
+    restart: on-failure
+    user: "0"
+    depends_on:
+      - loki
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --stability.level=experimental # Enable all functionality
+    networks:
+      - prom-net
+
+  # https://grafana.com/docs/loki/latest/setup/install/docker/#install-with-docker-compose
+  loki:
+    image: grafana/loki:3.7
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - prom-net
+
+  promtail:
+    image: grafana/promtail:3.6.11
+    user: "0"
+    volumes:
+      - ./promtail-log:/var/log
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - prom-net
+
+  # id: 1860, Node Exporter Full
+  # id: 19792, cadvisor dashboard
+  # id: 17781, loki
+  # Prometheus 核心服务
+  prometheus:
+    image: prom/prometheus:v3.11.3
+    container_name: prometheus
+    restart: always
+    user: "0"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml  # 配置文件挂载
+      - ./prometheus-data:/prometheus  # 监控数据持久化
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - prom-net
+
+# cAdvisor 容器指标采集器
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    container_name: cadvisor
+    restart: always
+    ports:
+      - "9126:8080"  # 避免端口冲突，映射为 9126
+    volumes:
+      - /:/rootfs:ro  # 只读挂载根目录，采集系统信息
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro  # 读取 Docker 容器元数据
+    networks:
+      - prom-net
+
+  # Node Exporter 主机指标采集器
+  node-exporter:
+    image: prom/node-exporter:v1
+    container_name: node-exporter
+    restart: always
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+    user: "0"
+    networks:
+      - prom-net
+
+  grafana:
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=root  # Grafana 管理员密码
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_FEATURE_TOGGLES_ENABLE=alertingSimplifiedRouting,alertingQueryAndExpressionsStepMode
+    entrypoint:
+      - sh
+      - -euc
+      - |
+        mkdir -p /etc/grafana/provisioning/datasources
+        cat <<EOF > /etc/grafana/provisioning/datasources/ds.yaml
+        apiVersion: 1
+        datasources:
+        - name: Loki
+          type: loki
+          access: proxy
+          orgId: 1
+          url: http://loki:3100
+          basicAuth: false
+          isDefault: true
+          version: 1
+          editable: false
+        EOF
+        /run.sh
+    image: grafana/grafana:13.1.0-25893932881
+    container_name: grafana
+    restart: always
+    user: "0"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana-data:/var/lib/grafana  # 面板配置和数据持久化
+    networks:
+      - prom-net
+
+networks:
+  prom-net:
+    driver: bridge

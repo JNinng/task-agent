@@ -59,8 +59,8 @@ var (
 	writerMutex   sync.Mutex
 	atomicLevel   zap.AtomicLevel
 	currentLogCfg atomic.Value
-	extraCores   []zapcore.Core
-	extraCoresMu sync.RWMutex
+	extraCores    []zapcore.Core
+	extraCoresMu  sync.RWMutex
 )
 
 // Init 初始化日志系统

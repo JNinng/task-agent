@@ -1,0 +1,64 @@
+groups:
+  - name: 容器监控告警组
+    rules:
+      # 1. 容器 CPU 使用率超过 80%（持续 1 分钟）
+      - alert: 容器CPU使用率过高
+        expr: sum(rate(container_cpu_usage_seconds_total{name!=""}[1m])) by (name) / sum(container_spec_cpu_quota{name!=""}/1e9) by (name) > 0.8
+        for: 1m
+        labels:
+          severity: warning # 告警级别（warning/critical）
+        annotations:
+          summary: "容器 {{ $labels.name }} CPU 使用率过高"
+          description: "容器 {{ $labels.name }} CPU 使用率已超过 80%，当前值：{{ $value | humanizePercentage }}"
+
+      # 2. 容器内存使用率超过 85%（持续 1 分钟）
+      - alert: 容器内存使用率过高
+        expr: (container_memory_usage_bytes{name!=""} - container_memory_cache{name!=""}) / container_spec_memory_limit_bytes{name!=""} > 0.85
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "容器 {{ $labels.name }} 内存使用率过高"
+          description: "容器 {{ $labels.name }} 内存使用率已超过 85%，当前值：{{ $value | humanizePercentage }}"
+
+      # 3. 容器磁盘写速率过高（超过 10MB/s，持续 2 分钟）
+      - alert: 容器磁盘写速率过高
+        expr: rate(container_fs_writes_bytes_total{name!=""}[2m]) > 10485760
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "容器 {{ $labels.name }} 磁盘写速率过高"
+          description: "容器 {{ $labels.name }} 磁盘写速率超过 10MB/s，当前值：{{ $value | humanizeBytes }}/s"
+
+  - name: 主机监控告警组
+    rules:
+      # 1. 主机 CPU 使用率超过 85%（持续 1 分钟）
+      - alert: 主机CPU使用率过高
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[1m])) * 100) > 85
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "主机 {{ $labels.instance }} CPU 使用率过高"
+          description: "主机 {{ $labels.instance }} CPU 使用率已超过 85%，当前值：{{ $value | humanizePercentage }}"
+
+      # 2. 主机磁盘可用空间不足 20%
+      - alert: 主机磁盘空间不足
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "主机 {{ $labels.instance }} 磁盘空间不足"
+          description: "主机 {{ $labels.instance }} 根目录可用空间不足 20%，当前可用：{{ $value | humanizePercentage }}"
+
+      # 3. 主机 Swap 使用率超过 90%
+      - alert: 主机Swap使用率过高
+        expr: (node_swap_used_bytes / node_swap_total_bytes) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "主机 {{ $labels.instance }} Swap 使用率过高"
+          description: "主机 {{ $labels.instance }} Swap 使用率已超过 90%，当前值：{{ $value | humanizePercentage }}"

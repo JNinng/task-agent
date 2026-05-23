@@ -5,7 +5,7 @@ app:
 
 log:
   level: info
-  format: console
+  format: json
   path: logs/app.log
   max_size: 200
   max_age: 60
@@ -28,6 +28,13 @@ observability:
   addr: ":9090"
   metrics_path: /metrics
   health_path: /health
+  otel:
+    endpoint: "alloy.com:4318"
+    protocol: http
+    logs:
+      enabled: false
+    traces:
+      enabled: false
   tracing:
     enabled: false
     endpoint: ""

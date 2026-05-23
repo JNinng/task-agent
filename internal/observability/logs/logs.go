@@ -49,6 +49,6 @@ func Init(ctx context.Context, cfg config.OTelConfig, res *resource.Resource) (z
 		log.WithResource(res),
 	)
 
-	core := otelzap.NewCore("go-template", otelzap.WithLoggerProvider(provider))
+	core := otelzap.NewCore("otel-log", otelzap.WithLoggerProvider(provider))
 	return core, provider.Shutdown, nil
 }

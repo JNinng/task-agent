@@ -1,0 +1,60 @@
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "127.0.0.1:4317"
+  }
+
+  http {
+    endpoint = "127.0.0.1:4318"
+  }
+
+  output {
+    metrics = [otelcol.processor.batch.batch_default.input]
+    logs    = [otelcol.processor.batch.batch_default.input]
+    traces  = [otelcol.processor.batch.batch_default.input]
+  }
+}
+
+otelcol.processor.batch "batch_default" {
+  output {
+    metrics = [otelcol.exporter.otlphttp.default.input]
+    logs    = [otelcol.exporter.otlphttp.default.input]
+    traces  = [otelcol.exporter.otlphttp.default.input]
+  }
+}
+
+otelcol.exporter.otlphttp "default" {
+  client {
+    endpoint = "http://loki:3100/otlp"
+  }
+}
+
+discovery.docker "flog_scrape" {
+    host             = "unix:///var/run/docker.sock"
+    refresh_interval = "5s"
+}
+
+discovery.relabel "flog_scrape" {
+targets = []
+
+rule {
+    source_labels = ["__meta_docker_container_name"]
+        regex         = "/(.*)"
+        target_label  = "container"
+    }
+}
+
+loki.source.docker "flog_scrape" {
+    host             = "unix:///var/run/docker.sock"
+    targets          = discovery.docker.flog_scrape.targets
+    forward_to       = [loki.write.default.receiver]
+    relabel_rules    = discovery.relabel.flog_scrape.rules
+    refresh_interval = "5s"
+}
+
+loki.write "default" {
+    endpoint {
+        url       = "http://loki:3100/loki/api/v1/push"
+        tenant_id = "default-tenant"
+    }
+    external_labels = {}
+}
