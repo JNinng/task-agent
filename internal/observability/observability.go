@@ -1,11 +1,3 @@
-// Package observability provides observability infrastructure:
-// - health: HTTP health check endpoint
-// - metrics: Prometheus metrics endpoint
-// - tracing: OpenTelemetry tracing (scaffold)
-//
-// Two integration modes:
-//  1. Standalone port (default): Start() creates its own HTTP server
-//  2. User integration: HealthHandler() and MetricsHandler() return handlers
 package observability
 
 import (
@@ -16,8 +8,12 @@ import (
 	"go-template/internal/config"
 	"go-template/internal/logger"
 	"go-template/internal/observability/health"
+	"go-template/internal/observability/logs"
 	"go-template/internal/observability/metrics"
 	"go-template/internal/observability/tracing"
+
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -27,17 +23,27 @@ func Start(ctx context.Context, cfg config.ObservabilityConfig) error {
 		return nil
 	}
 	if cfg.Addr == "" {
-		// Empty addr means user handles integration themselves
 		return nil
 	}
 
-	// Initialize tracing
-	tracingShutdown, err := tracing.Init(ctx, tracing.Config{
-		Enabled:  cfg.Tracing.Enabled,
-		Endpoint: cfg.Tracing.Endpoint,
-	})
+	res := resource.NewWithAttributes(semconv.SchemaURL,
+		semconv.ServiceName(config.Get().App.Name),
+		semconv.DeploymentEnvironmentName(config.Get().App.Env),
+	)
+
+	traceShutdown, err := tracing.Init(ctx, cfg.OTel, res)
 	if err != nil {
 		logger.Warnf("Failed to init tracing: %v", err)
+	}
+
+	logCore, logShutdown, err := logs.Init(ctx, cfg.OTel, res)
+	if err != nil {
+		logger.Warnf("Failed to init OTel logs: %v", err)
+	}
+	if logCore != nil {
+		if err := logger.AddCore(logCore); err != nil {
+			logger.Warnf("Failed to add OTel log core: %v", err)
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -53,9 +59,14 @@ func Start(ctx context.Context, cfg config.ObservabilityConfig) error {
 
 	go func() {
 		<-ctx.Done()
-		tracingShutdown()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
+		if logShutdown != nil {
+			logShutdown(shutdownCtx)
+		}
+		if traceShutdown != nil {
+			traceShutdown(shutdownCtx)
+		}
 		srv.Shutdown(shutdownCtx)
 	}()
 
