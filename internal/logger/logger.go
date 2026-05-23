@@ -56,6 +56,8 @@ var (
 	writerMutex   sync.Mutex
 	atomicLevel   zap.AtomicLevel
 	currentLogCfg atomic.Value
+	extraCores   []zapcore.Core
+	extraCoresMu sync.RWMutex
 )
 
 // Init 初始化日志系统
@@ -103,6 +105,36 @@ func Reset(cfg *Config) error {
 	return nil
 }
 
+// AddCore 向 logger 注入额外的 zapcore.Core（如 otelzap bridge）。
+// 线程安全，注入后自动重建底层 logger。
+func AddCore(core zapcore.Core) {
+	extraCoresMu.Lock()
+	extraCores = append(extraCores, core)
+	copyCores := make([]zapcore.Core, len(extraCores))
+	copy(copyCores, extraCores)
+	extraCoresMu.Unlock()
+
+	cfg, ok := currentLogCfg.Load().(*Config)
+	if !ok || cfg == nil {
+		return
+	}
+
+	logger, sugar, writer, err := buildLogger(cfg, atomicLevel, copyCores...)
+	if err != nil {
+		return
+	}
+
+	writerMutex.Lock()
+	if currentWriter != nil {
+		currentWriter.Close()
+	}
+	currentWriter = writer
+	writerMutex.Unlock()
+
+	globalLogger.Store(logger)
+	globalSugar.Store(sugar)
+}
+
 // SetLevel 动态设置日志级别
 func SetLevel(level string) {
 	atomicLevel.SetLevel(getZapLevel(level))
@@ -113,7 +145,7 @@ func GetLevel() zapcore.Level {
 	return atomicLevel.Level()
 }
 
-func buildLogger(cfg *Config, level zap.AtomicLevel) (*zap.Logger, *zap.SugaredLogger, *lumberjack.Logger, error) {
+func buildLogger(cfg *Config, level zap.AtomicLevel, extra ...zapcore.Core) (*zap.Logger, *zap.SugaredLogger, *lumberjack.Logger, error) {
 	fileEncoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "time",
 		LevelKey:       "level",
@@ -175,6 +207,7 @@ func buildLogger(cfg *Config, level zap.AtomicLevel) (*zap.Logger, *zap.SugaredL
 		cores = append(cores, consoleCore)
 	}
 
+	cores = append(cores, extra...)
 	core := zapcore.NewTee(cores...)
 	logger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
 

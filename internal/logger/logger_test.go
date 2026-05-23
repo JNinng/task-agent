@@ -4,6 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestInitAndLog(t *testing.T) {
@@ -81,6 +85,35 @@ func TestResetOutput(t *testing.T) {
 	}
 
 	// Close the lumberjack writer so temp dir cleanup succeeds
+	writerMutex.Lock()
+	if currentWriter != nil {
+		currentWriter.Close()
+		currentWriter = nil
+	}
+	writerMutex.Unlock()
+}
+
+func TestAddCore(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.LogToConsole = false
+	cfg.Path = ""
+	if err := Init(&cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	core, observed := observer.New(zapcore.DebugLevel)
+	AddCore(core)
+
+	Info("test message", zap.String("key", "value"))
+
+	logs := observed.All()
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	if logs[0].Message != "test message" {
+		t.Errorf("expected 'test message', got %s", logs[0].Message)
+	}
+
 	writerMutex.Lock()
 	if currentWriter != nil {
 		currentWriter.Close()
