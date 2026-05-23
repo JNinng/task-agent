@@ -414,12 +414,12 @@ func withTraceContext(ctx context.Context) []zap.Field {
 
 // sugarTraceContext 从 context 中提取 TraceID 和 SpanID，以 []interface{} 形式返回，
 // 兼容 SugaredLogger.With 的参数签名。
-func sugarTraceContext(ctx context.Context) []interface{} {
+func sugarTraceContext(ctx context.Context) []any {
 	fields := withTraceContext(ctx)
 	if len(fields) == 0 {
 		return nil
 	}
-	result := make([]interface{}, len(fields))
+	result := make([]any, len(fields))
 	for i, f := range fields {
 		result[i] = f
 	}
