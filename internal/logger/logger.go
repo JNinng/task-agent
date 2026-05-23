@@ -1,12 +1,14 @@
 package logger
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -292,6 +294,76 @@ func Fatal(msg string, fields ...zap.Field) {
 	getLogger().Fatal(msg, fields...)
 }
 
+// DebugContext 输出带有 trace context 的 Debug 级别日志
+func DebugContext(ctx context.Context, msg string, fields ...zap.Field) {
+	getLogger().Debug(msg, append(fields, withTraceContext(ctx)...)...)
+}
+
+// InfoContext 输出带有 trace context 的 Info 级别日志
+func InfoContext(ctx context.Context, msg string, fields ...zap.Field) {
+	getLogger().Info(msg, append(fields, withTraceContext(ctx)...)...)
+}
+
+// WarnContext 输出带有 trace context 的 Warn 级别日志
+func WarnContext(ctx context.Context, msg string, fields ...zap.Field) {
+	getLogger().Warn(msg, append(fields, withTraceContext(ctx)...)...)
+}
+
+// ErrorContext 输出带有 trace context 的 Error 级别日志
+func ErrorContext(ctx context.Context, msg string, fields ...zap.Field) {
+	getLogger().Error(msg, append(fields, withTraceContext(ctx)...)...)
+}
+
+// DPanicContext 输出带有 trace context 的 DPanic 级别日志
+func DPanicContext(ctx context.Context, msg string, fields ...zap.Field) {
+	getLogger().DPanic(msg, append(fields, withTraceContext(ctx)...)...)
+}
+
+// PanicContext 输出带有 trace context 的 Panic 级别日志
+func PanicContext(ctx context.Context, msg string, fields ...zap.Field) {
+	getLogger().Panic(msg, append(fields, withTraceContext(ctx)...)...)
+}
+
+// FatalContext 输出带有 trace context 的 Fatal 级别日志
+func FatalContext(ctx context.Context, msg string, fields ...zap.Field) {
+	getLogger().Fatal(msg, append(fields, withTraceContext(ctx)...)...)
+}
+
+// DebugfContext 输出带有 trace context 的 Debug 级别格式化日志
+func DebugfContext(ctx context.Context, template string, args ...any) {
+	getSugar().With(sugarTraceContext(ctx)...).Debugf(template, args...)
+}
+
+// InfofContext 输出带有 trace context 的 Info 级别格式化日志
+func InfofContext(ctx context.Context, template string, args ...any) {
+	getSugar().With(sugarTraceContext(ctx)...).Infof(template, args...)
+}
+
+// WarnfContext 输出带有 trace context 的 Warn 级别格式化日志
+func WarnfContext(ctx context.Context, template string, args ...any) {
+	getSugar().With(sugarTraceContext(ctx)...).Warnf(template, args...)
+}
+
+// ErrorfContext 输出带有 trace context 的 Error 级别格式化日志
+func ErrorfContext(ctx context.Context, template string, args ...any) {
+	getSugar().With(sugarTraceContext(ctx)...).Errorf(template, args...)
+}
+
+// DPanicfContext 输出带有 trace context 的 DPanic 级别格式化日志
+func DPanicfContext(ctx context.Context, template string, args ...any) {
+	getSugar().With(sugarTraceContext(ctx)...).DPanicf(template, args...)
+}
+
+// PanicfContext 输出带有 trace context 的 Panic 级别格式化日志
+func PanicfContext(ctx context.Context, template string, args ...any) {
+	getSugar().With(sugarTraceContext(ctx)...).Panicf(template, args...)
+}
+
+// FatalfContext 输出带有 trace context 的 Fatal 级别格式化日志
+func FatalfContext(ctx context.Context, template string, args ...any) {
+	getSugar().With(sugarTraceContext(ctx)...).Fatalf(template, args...)
+}
+
 // Debugf 输出 Debug 级别格式化日志
 func Debugf(template string, args ...any) {
 	getSugar().Debugf(template, args...)
@@ -325,6 +397,33 @@ func Panicf(template string, args ...any) {
 // Fatalf 输出 Fatal 级别格式化日志
 func Fatalf(template string, args ...any) {
 	getSugar().Fatalf(template, args...)
+}
+
+// withTraceContext 从 context 中提取 TraceID 和 SpanID 作为 zap.Field。
+// 如果 context 中没有活跃的 Span，返回空切片。
+func withTraceContext(ctx context.Context) []zap.Field {
+	span := trace.SpanFromContext(ctx)
+	if !span.SpanContext().IsValid() {
+		return nil
+	}
+	return []zap.Field{
+		zap.String("trace_id", span.SpanContext().TraceID().String()),
+		zap.String("span_id", span.SpanContext().SpanID().String()),
+	}
+}
+
+// sugarTraceContext 从 context 中提取 TraceID 和 SpanID，以 []interface{} 形式返回，
+// 兼容 SugaredLogger.With 的参数签名。
+func sugarTraceContext(ctx context.Context) []interface{} {
+	fields := withTraceContext(ctx)
+	if len(fields) == 0 {
+		return nil
+	}
+	result := make([]interface{}, len(fields))
+	for i, f := range fields {
+		result[i] = f
+	}
+	return result
 }
 
 // Sync 同步日志缓冲区

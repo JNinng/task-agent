@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -158,6 +159,49 @@ func TestAddCoreSurvivesReset(t *testing.T) {
 	}
 	if logs[0].Message != "after reset" {
 		t.Errorf("expected 'after reset', got %s", logs[0].Message)
+	}
+
+	// Cleanup
+	extraCoresMu.Lock()
+	extraCores = nil
+	extraCoresMu.Unlock()
+	writerMutex.Lock()
+	if currentWriter != nil {
+		currentWriter.Close()
+		currentWriter = nil
+	}
+	writerMutex.Unlock()
+}
+
+func TestContextMethods(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.LogToConsole = false
+	cfg.Path = ""
+	if err := Init(&cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	core, observed := observer.New(zapcore.DebugLevel)
+	if err := AddCore(core); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	InfoContext(ctx, "info with context", zap.String("k", "v"))
+	InfofContext(ctx, "formatted with context: %s", "hello")
+	DebugContext(ctx, "debug with context")
+	WarnContext(ctx, "warn with context")
+	ErrorContext(ctx, "error with context")
+
+	logs := observed.All()
+	if len(logs) < 5 {
+		t.Fatalf("expected at least 5 logs, got %d", len(logs))
+	}
+	if logs[0].Message != "info with context" {
+		t.Errorf("expected 'info with context', got %s", logs[0].Message)
+	}
+	if logs[1].Message != "formatted with context: hello" {
+		t.Errorf("expected 'formatted with context: hello', got %s", logs[1].Message)
 	}
 
 	// Cleanup
