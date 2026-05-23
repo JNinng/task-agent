@@ -118,18 +118,27 @@ func Reset(cfg *Config) error {
 // 如果 logger 尚未初始化或重建失败，返回 error。
 func AddCore(core zapcore.Core) error {
 	extraCoresMu.Lock()
+	oldLen := len(extraCores)
 	extraCores = append(extraCores, core)
 	copyCores := make([]zapcore.Core, len(extraCores))
 	copy(copyCores, extraCores)
 	extraCoresMu.Unlock()
 
+	rollback := func() {
+		extraCoresMu.Lock()
+		extraCores = extraCores[:oldLen]
+		extraCoresMu.Unlock()
+	}
+
 	cfg, ok := currentLogCfg.Load().(*Config)
 	if !ok || cfg == nil {
+		rollback()
 		return fmt.Errorf("logger not initialized, call Init first")
 	}
 
 	logger, sugar, writer, err := buildLogger(cfg, atomicLevel, copyCores...)
 	if err != nil {
+		rollback()
 		return err
 	}
 

@@ -3,6 +3,7 @@ package tracing
 import (
 	"context"
 	"testing"
+	"time"
 
 	"go-template/internal/config"
 
@@ -30,9 +31,10 @@ func TestInitDisabled(t *testing.T) {
 	}
 }
 
-func TestInitInvalidEndpoint(t *testing.T) {
+func TestInitDoesNotPanicWithBadEndpoint(t *testing.T) {
+	// Use a non-routable IP to ensure connection fails, not a valid-but-unreachable host.
 	cfg := config.OTelConfig{
-		Endpoint: "invalid-endpoint:99999",
+		Endpoint: "127.255.255.255:9999",
 		Protocol: "grpc",
 		Traces:   config.SignalConfig{Enabled: true},
 	}
@@ -40,8 +42,19 @@ func TestInitInvalidEndpoint(t *testing.T) {
 		semconv.ServiceName("test"),
 	)
 
-	_, err := Init(context.Background(), cfg, res)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	shutdown, err := Init(ctx, cfg, res)
 	if err != nil {
-		t.Logf("Init returned error (expected for invalid config): %v", err)
+		t.Logf("Init returned error (expected for unreachable endpoint): %v", err)
+		return
+	}
+	if shutdown == nil {
+		t.Fatal("expected non-nil shutdown even on bad endpoint")
+	}
+	// shutdown must still work even if init "succeeded" (lazy gRPC connection)
+	if err := shutdown(context.Background()); err != nil {
+		t.Logf("shutdown returned error: %v", err)
 	}
 }
