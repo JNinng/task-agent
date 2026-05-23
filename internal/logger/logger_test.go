@@ -102,7 +102,9 @@ func TestAddCore(t *testing.T) {
 	}
 
 	core, observed := observer.New(zapcore.DebugLevel)
-	AddCore(core)
+	if err := AddCore(core); err != nil {
+		t.Fatalf("AddCore failed: %v", err)
+	}
 
 	Info("test message", zap.String("key", "value"))
 
@@ -114,6 +116,54 @@ func TestAddCore(t *testing.T) {
 		t.Errorf("expected 'test message', got %s", logs[0].Message)
 	}
 
+	// Cleanup: reset extra cores and close writer
+	extraCoresMu.Lock()
+	extraCores = nil
+	extraCoresMu.Unlock()
+	writerMutex.Lock()
+	if currentWriter != nil {
+		currentWriter.Close()
+		currentWriter = nil
+	}
+	writerMutex.Unlock()
+}
+
+func TestAddCoreSurvivesReset(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.LogToConsole = false
+	cfg.Path = ""
+	if err := Init(&cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	core, observed := observer.New(zapcore.DebugLevel)
+	if err := AddCore(core); err != nil {
+		t.Fatalf("AddCore failed: %v", err)
+	}
+	observed.TakeAll() // clear pre-AddCore messages
+
+	// Simulate a config reset — extra cores must survive
+	resetCfg := DefaultConfig()
+	resetCfg.LogToConsole = false
+	resetCfg.Level = "debug"
+	if err := Reset(&resetCfg); err != nil {
+		t.Fatal(err)
+	}
+
+	Info("after reset")
+
+	logs := observed.All()
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log after reset, got %d", len(logs))
+	}
+	if logs[0].Message != "after reset" {
+		t.Errorf("expected 'after reset', got %s", logs[0].Message)
+	}
+
+	// Cleanup
+	extraCoresMu.Lock()
+	extraCores = nil
+	extraCoresMu.Unlock()
 	writerMutex.Lock()
 	if currentWriter != nil {
 		currentWriter.Close()

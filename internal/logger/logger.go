@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -64,7 +65,12 @@ var (
 func Init(cfg *Config) error {
 	atomicLevel = zap.NewAtomicLevelAt(getZapLevel(cfg.Level))
 
-	logger, sugar, writer, err := buildLogger(cfg, atomicLevel)
+	extraCoresMu.RLock()
+	copyCores := make([]zapcore.Core, len(extraCores))
+	copy(copyCores, extraCores)
+	extraCoresMu.RUnlock()
+
+	logger, sugar, writer, err := buildLogger(cfg, atomicLevel, copyCores...)
 	if err != nil {
 		return err
 	}
@@ -107,7 +113,8 @@ func Reset(cfg *Config) error {
 
 // AddCore 向 logger 注入额外的 zapcore.Core（如 otelzap bridge）。
 // 线程安全，注入后自动重建底层 logger。
-func AddCore(core zapcore.Core) {
+// 如果 logger 尚未初始化或重建失败，返回 error。
+func AddCore(core zapcore.Core) error {
 	extraCoresMu.Lock()
 	extraCores = append(extraCores, core)
 	copyCores := make([]zapcore.Core, len(extraCores))
@@ -116,12 +123,12 @@ func AddCore(core zapcore.Core) {
 
 	cfg, ok := currentLogCfg.Load().(*Config)
 	if !ok || cfg == nil {
-		return
+		return fmt.Errorf("logger not initialized, call Init first")
 	}
 
 	logger, sugar, writer, err := buildLogger(cfg, atomicLevel, copyCores...)
 	if err != nil {
-		return
+		return err
 	}
 
 	writerMutex.Lock()
@@ -133,6 +140,7 @@ func AddCore(core zapcore.Core) {
 
 	globalLogger.Store(logger)
 	globalSugar.Store(sugar)
+	return nil
 }
 
 // SetLevel 动态设置日志级别
