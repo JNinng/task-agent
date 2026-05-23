@@ -59,17 +59,24 @@ type NacosConfig struct {
 
 // ObservabilityConfig 可观测性配置
 type ObservabilityConfig struct {
-	Enabled     bool          `yaml:"enabled" mapstructure:"enabled"`
-	Addr        string        `yaml:"addr" mapstructure:"addr"`
-	MetricsPath string        `yaml:"metrics_path" mapstructure:"metrics_path"`
-	HealthPath  string        `yaml:"health_path" mapstructure:"health_path"`
-	Tracing     TracingConfig `yaml:"tracing" mapstructure:"tracing"`
+	Enabled     bool       `yaml:"enabled" mapstructure:"enabled"`
+	Addr        string     `yaml:"addr" mapstructure:"addr"`
+	MetricsPath string     `yaml:"metrics_path" mapstructure:"metrics_path"`
+	HealthPath  string     `yaml:"health_path" mapstructure:"health_path"`
+	OTel        OTelConfig `yaml:"otel" mapstructure:"otel"`
 }
 
-// TracingConfig 链路追踪配置
-type TracingConfig struct {
-	Enabled  bool   `yaml:"enabled" mapstructure:"enabled"`
-	Endpoint string `yaml:"endpoint" mapstructure:"endpoint"`
+// OTelConfig OpenTelemetry 配置
+type OTelConfig struct {
+	Endpoint string       `yaml:"endpoint" mapstructure:"endpoint"` // OTLP collector 地址
+	Protocol string       `yaml:"protocol" mapstructure:"protocol"` // 协议: "grpc" 或 "http"
+	Logs     SignalConfig `yaml:"logs" mapstructure:"logs"`         // 日志导出配置
+	Traces   SignalConfig `yaml:"traces" mapstructure:"traces"`     // 链路导出配置
+}
+
+// SignalConfig 单个 OTel 信号的启用配置
+type SignalConfig struct {
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
 }
 
 // Config 完整配置结构
@@ -117,6 +124,8 @@ const (
 	DefaultObsAddr        = ":9090"
 	DefaultObsMetricsPath = "/metrics"
 	DefaultObsHealthPath  = "/health"
+	DefaultOTelEndpoint   = "localhost:4317"
+	DefaultOTelProtocol   = "grpc"
 )
 
 // DefaultAppConfig 返回默认应用配置
@@ -149,6 +158,10 @@ func DefaultObservabilityConfig() ObservabilityConfig {
 		Addr:        DefaultObsAddr,
 		MetricsPath: DefaultObsMetricsPath,
 		HealthPath:  DefaultObsHealthPath,
+		OTel: OTelConfig{
+			Endpoint: DefaultOTelEndpoint,
+			Protocol: DefaultOTelProtocol,
+		},
 	}
 }
 
@@ -322,6 +335,10 @@ func setDefaults() {
 	v.SetDefault("observability.addr", DefaultObsAddr)
 	v.SetDefault("observability.metrics_path", DefaultObsMetricsPath)
 	v.SetDefault("observability.health_path", DefaultObsHealthPath)
+	v.SetDefault("observability.otel.endpoint", DefaultOTelEndpoint)
+	v.SetDefault("observability.otel.protocol", DefaultOTelProtocol)
+	v.SetDefault("observability.otel.logs.enabled", false)
+	v.SetDefault("observability.otel.traces.enabled", false)
 }
 
 // Get 获取当前配置

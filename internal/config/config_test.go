@@ -18,6 +18,28 @@ func TestObservabilityDefaultConfig(t *testing.T) {
 	if cfg.HealthPath != "/health" {
 		t.Errorf("expected /health, got %s", cfg.HealthPath)
 	}
+	if cfg.OTel.Endpoint != DefaultOTelEndpoint {
+		t.Errorf("expected %s, got %s", DefaultOTelEndpoint, cfg.OTel.Endpoint)
+	}
+	if cfg.OTel.Protocol != DefaultOTelProtocol {
+		t.Errorf("expected %s, got %s", DefaultOTelProtocol, cfg.OTel.Protocol)
+	}
+	if cfg.OTel.Logs.Enabled {
+		t.Error("expected logs.enabled to be false by default")
+	}
+	if cfg.OTel.Traces.Enabled {
+		t.Error("expected traces.enabled to be false by default")
+	}
+}
+
+func TestOTelConfigDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Observability.OTel.Endpoint != DefaultOTelEndpoint {
+		t.Errorf("expected %s, got %s", DefaultOTelEndpoint, cfg.Observability.OTel.Endpoint)
+	}
+	if cfg.Observability.OTel.Protocol != DefaultOTelProtocol {
+		t.Errorf("expected %s, got %s", DefaultOTelProtocol, cfg.Observability.OTel.Protocol)
+	}
 }
 
 func TestLoggerConfigConversion(t *testing.T) {
