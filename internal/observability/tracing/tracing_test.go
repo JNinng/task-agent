@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"go-template/internal/config"
+	"task-agent/internal/config"
 
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"

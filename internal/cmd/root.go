@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 
-	"go-template/internal/app"
-	"go-template/internal/config"
-	"go-template/internal/logger"
-	"go-template/internal/observability"
-	"go-template/internal/signal"
+	"task-agent/internal/app"
+	"task-agent/internal/config"
+	"task-agent/internal/logger"
+	"task-agent/internal/observability"
+	"task-agent/internal/signal"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"

@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"go-template/pkg/version"
+	"task-agent/pkg/version"
 
 	"github.com/spf13/cobra"
 )

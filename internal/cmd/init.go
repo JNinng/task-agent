@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"go-template/internal/config"
+	"task-agent/internal/config"
 
 	"github.com/spf13/cobra"
 )

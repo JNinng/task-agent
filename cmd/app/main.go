@@ -1,6 +1,6 @@
 package main
 
-import "go-template/internal/cmd"
+import "task-agent/internal/cmd"
 
 func main() {
 	cmd.Execute()

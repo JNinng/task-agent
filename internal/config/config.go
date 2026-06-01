@@ -15,8 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-
-	"go-template/internal/logger"
+	"task-agent/internal/logger"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
@@ -25,10 +24,9 @@ import (
 
 // AppConfig 应用程序基础配置
 type AppConfig struct {
-	Name        string `yaml:"name" mapstructure:"name"`                 // 应用名称
-	Env         string `yaml:"env" mapstructure:"env"`                   // 运行环境
-	Watch       bool   `yaml:"watch" mapstructure:"watch"`               // 是否监控配置文件变更
-	EnableNacos bool   `yaml:"enable_nacos" mapstructure:"enable_nacos"` // 是否启用 Nacos
+	Name  string `yaml:"name" mapstructure:"name"`   // 应用名称
+	Env   string `yaml:"env" mapstructure:"env"`     // 运行环境
+	Watch bool   `yaml:"watch" mapstructure:"watch"` // 是否监控配置文件变更
 }
 
 // LogConfig 日志配置
@@ -41,20 +39,6 @@ type LogConfig struct {
 	MaxBackups   int    `yaml:"max_backups" mapstructure:"max_backups"`       // 保留的日志文件数量
 	Compress     bool   `yaml:"compress" mapstructure:"compress"`             // 是否压缩历史日志
 	LogToConsole bool   `yaml:"log_to_console" mapstructure:"log_to_console"` // 是否输出到控制台
-}
-
-// NacosConfig Nacos 配置中心配置
-type NacosConfig struct {
-	Addr      string `yaml:"addr" mapstructure:"addr"`
-	Port      uint64 `yaml:"port" mapstructure:"port"`
-	Username  string `yaml:"username" mapstructure:"username"`
-	Password  string `yaml:"password" mapstructure:"password"`
-	Namespace string `yaml:"namespace" mapstructure:"namespace"`
-	Group     string `yaml:"group" mapstructure:"group"`
-	DataId    string `yaml:"data_id" mapstructure:"data_id"`
-	LogLevel  string `yaml:"log_level" mapstructure:"log_level"`
-	LogDir    string `yaml:"log_dir" mapstructure:"log_dir"`
-	CacheDir  string `yaml:"cache_dir" mapstructure:"cache_dir"`
 }
 
 // ObservabilityConfig 可观测性配置
@@ -83,7 +67,6 @@ type SignalConfig struct {
 type Config struct {
 	App           AppConfig           `yaml:"app" mapstructure:"app"`
 	Log           LogConfig           `yaml:"log" mapstructure:"log"`
-	Nacos         NacosConfig         `yaml:"nacos" mapstructure:"nacos"`
 	Observability ObservabilityConfig `yaml:"observability" mapstructure:"observability"`
 	Secret        struct {
 		Key string `yaml:"key" mapstructure:"key"`
@@ -112,7 +95,6 @@ const (
 	DefaultAppName        = "app"          // 默认应用名称
 	DefaultAppEnv         = "dev"          // 默认运行环境
 	DefaultAppWatch       = false          // 默认监控配置文件变更
-	DefaultAppEnableNacos = false          // 默认启用 Nacos
 	DefaultLogLevel       = "info"         // 默认日志级别
 	DefaultLogFormat      = "console"      // 默认日志格式
 	DefaultLogPath        = "logs/app.log" // 默认日志路径
@@ -131,10 +113,9 @@ const (
 // DefaultAppConfig 返回默认应用配置
 func DefaultAppConfig() AppConfig {
 	return AppConfig{
-		Name:        DefaultAppName,
-		Env:         DefaultAppEnv,
-		Watch:       DefaultAppWatch,
-		EnableNacos: DefaultAppEnableNacos,
+		Name:  DefaultAppName,
+		Env:   DefaultAppEnv,
+		Watch: DefaultAppWatch,
 	}
 }
 
@@ -165,22 +146,6 @@ func DefaultObservabilityConfig() ObservabilityConfig {
 	}
 }
 
-// DefaultNacosConfig 返回默认 Nacos 配置
-func DefaultNacosConfig() NacosConfig {
-	return NacosConfig{
-		Addr:      "127.0.0.1",
-		Port:      8848,
-		Username:  "nacos",
-		Password:  "nacos",
-		Namespace: "public",
-		Group:     "DEFAULT_GROUP",
-		DataId:    "application.yml",
-		LogLevel:  "debug",
-		LogDir:    "./logs",
-		CacheDir:  "./cache",
-	}
-}
-
 // DefaultConfig 返回默认配置
 //
 // 返回值:
@@ -189,7 +154,6 @@ func DefaultConfig() *Config {
 	return &Config{
 		App:           DefaultAppConfig(),
 		Log:           DefaultLogConfig(),
-		Nacos:         DefaultNacosConfig(),
 		Observability: DefaultObservabilityConfig(),
 	}
 }
@@ -323,7 +287,6 @@ func setDefaults() {
 	v.SetDefault("app.name", DefaultAppName)
 	v.SetDefault("app.env", DefaultAppEnv)
 	v.SetDefault("app.watch", DefaultAppWatch)
-	v.SetDefault("app.enable_nacos", DefaultAppEnableNacos)
 	v.SetDefault("log.level", DefaultLogLevel)
 	v.SetDefault("log.format", DefaultLogFormat)
 	v.SetDefault("log.path", DefaultLogPath)

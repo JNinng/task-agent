@@ -2,8 +2,7 @@ package app
 
 import (
 	"context"
-
-	"go-template/internal/logger"
+	"task-agent/internal/logger"
 )
 
 func Run(ctx context.Context) error {

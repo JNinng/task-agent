@@ -1,5 +1,5 @@
 app:
-  name: template-app
+  name: task-agent
   env: dev
   watch: true
 
@@ -12,16 +12,6 @@ log:
   max_backups: 60
   compress: true
   log_to_console: true
-
-nacos:
-  addr: 127.0.0.1
-  port: 8848
-  namespace: public
-  group: DEFAULT_GROUP
-  data_id: template-app.yml
-  log_level: debug
-  log_dir: logs
-  cache_dir: cache
 
 observability:
   enabled: false
@@ -38,6 +28,3 @@ observability:
   tracing:
     enabled: false
     endpoint: ""
-
-secret:
-  key: ""

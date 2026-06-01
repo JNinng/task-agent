@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"time"
 
-	"go-template/internal/config"
-	"go-template/internal/logger"
-	"go-template/internal/observability/health"
-	"go-template/internal/observability/logs"
-	"go-template/internal/observability/metrics"
-	"go-template/internal/observability/tracing"
+	"task-agent/internal/config"
+	"task-agent/internal/logger"
+	"task-agent/internal/observability/health"
+	"task-agent/internal/observability/logs"
+	"task-agent/internal/observability/metrics"
+	"task-agent/internal/observability/tracing"
 
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"

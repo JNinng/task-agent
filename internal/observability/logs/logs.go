@@ -8,7 +8,7 @@ import (
 	"context"
 	"fmt"
 
-	"go-template/internal/config"
+	"task-agent/internal/config"
 
 	"go.opentelemetry.io/contrib/bridges/otelzap"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"

@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"go-template/internal/logger"
+	"task-agent/internal/logger"
 )
 
 func TestObservabilityDefaultConfig(t *testing.T) {
