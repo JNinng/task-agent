@@ -1,7 +1,7 @@
 app:
   name: task-agent
   env: dev
-  watch: true
+  watch: false
 
 log:
   level: info
@@ -11,7 +11,7 @@ log:
   max_age: 60
   max_backups: 60
   compress: true
-  log_to_console: true
+  log_to_console: false
 
 observability:
   enabled: false
