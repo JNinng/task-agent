@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"task-agent/internal/agent/tools"
 )
 
 // thinkTickMsg 思考状态下的定时刷新消息。
@@ -102,17 +105,22 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
-	case EventToolCall:
-		m.content = append(m.content, fmt.Sprintf("\033[33m$ %s\033[0m", msg.Command))
+	case EventToolCalls:
+		for _, tc := range msg.Tools {
+			preview := toolPreview(tc)
+			m.content = append(m.content, fmt.Sprintf("\033[33m> %s(%s)\033[0m", tc.Name, preview))
+		}
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
-	case EventToolResult:
-		out := msg.Output
-		if len(out) > 200 {
-			m.content = append(m.content, out[:200], fmt.Sprintf("... (%d more bytes)", len(out)-200))
-		} else {
-			m.content = append(m.content, out)
+	case EventToolResults:
+		for _, tr := range msg.Results {
+			out := tr.Content
+			if len(out) > 200 {
+				m.content = append(m.content, out[:200], fmt.Sprintf("... (%d more bytes)", len(out)-200))
+			} else {
+				m.content = append(m.content, out)
+			}
 		}
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
@@ -202,6 +210,27 @@ func thinkTick() tea.Cmd {
 	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
 		return thinkTickMsg{}
 	})
+}
+
+// toolPreview returns a concise preview string for a tool call block.
+func toolPreview(tc tools.ToolUseBlock) string {
+	switch tc.Name {
+	case "bash":
+		var args struct{ Command string `json:"command"` }
+		if err := json.Unmarshal(tc.Input, &args); err == nil && args.Command != "" {
+			s := args.Command
+			if len(s) > 80 {
+				s = s[:80] + "..."
+			}
+			return s
+		}
+	case "read_file", "write_file", "edit_file":
+		var args struct{ Path string `json:"path"` }
+		if err := json.Unmarshal(tc.Input, &args); err == nil && args.Path != "" {
+			return args.Path
+		}
+	}
+	return "..."
 }
 
 // refreshViewport 根据 content 刷新 viewport 的显示内容。
