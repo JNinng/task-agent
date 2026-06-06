@@ -80,6 +80,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.SetHeight(msg.Height - m.textarea.Height())
 		m.refreshViewport()
 
+	case tea.MouseMsg:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
@@ -152,6 +157,7 @@ func (m *model) View() tea.View {
 	}
 	v.Cursor = c
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
@@ -166,6 +172,10 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.submit()
 	case "ctrl+c", "esc":
 		return m, tea.Quit
+	case "up", "down", "pgup", "pgdown", "home", "end":
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
 	default:
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
@@ -216,7 +226,9 @@ func thinkTick() tea.Cmd {
 func toolPreview(tc tools.ToolUseBlock) string {
 	switch tc.Name {
 	case "bash":
-		var args struct{ Command string `json:"command"` }
+		var args struct {
+			Command string `json:"command"`
+		}
 		if err := json.Unmarshal(tc.Input, &args); err == nil && args.Command != "" {
 			s := args.Command
 			if len(s) > 80 {
@@ -225,7 +237,9 @@ func toolPreview(tc tools.ToolUseBlock) string {
 			return s
 		}
 	case "read_file", "write_file", "edit_file":
-		var args struct{ Path string `json:"path"` }
+		var args struct {
+			Path string `json:"path"`
+		}
 		if err := json.Unmarshal(tc.Input, &args); err == nil && args.Path != "" {
 			return args.Path
 		}
