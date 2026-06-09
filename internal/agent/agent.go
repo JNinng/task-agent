@@ -67,7 +67,7 @@ func New() (*Agent, error) {
 
 	cwd, _ := os.Getwd()
 	system := []anthropic.BetaTextBlockParam{
-		{Text: fmt.Sprintf("You are a coding agent at %s. Use tools to solve tasks. Act, don't explain.", cwd)},
+		{Text: fmt.Sprintf("You are a coding agent at %s.\nUse tools to solve tasks. Act, don't explain.\n\nThe todo tool is self-contained — call it directly, do not explore the codebase first.", cwd)},
 	}
 
 	registry := tools.NewRegistry(
@@ -75,6 +75,7 @@ func New() (*Agent, error) {
 		&tools.ReadFileTool{Workdir: cwd},
 		&tools.WriteFileTool{Workdir: cwd},
 		&tools.EditFileTool{Workdir: cwd},
+		&tools.TodoWriteTool{},
 	)
 
 	return &Agent{

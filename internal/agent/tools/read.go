@@ -68,10 +68,13 @@ func (t ReadFileTool) read(path string, limit int) (string, error) {
 
 // safePath resolves and validates that the path stays within workdir.
 func safePath(workdir, p string) (string, error) {
-	absPath, err := filepath.Abs(filepath.Join(workdir, p))
-	if err != nil {
-		return "", fmt.Errorf("path resolution: %w", err)
+	var absPath string
+	if filepath.IsAbs(p) {
+		absPath = filepath.Clean(p)
+	} else {
+		absPath = filepath.Clean(filepath.Join(workdir, p))
 	}
+
 	realPath, err := filepath.EvalSymlinks(absPath)
 	if err != nil {
 		realPath = absPath

@@ -121,12 +121,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case EventToolResults:
 		for _, tr := range msg.Results {
 			out := tr.Content
+			if tr.Name == "todo" {
+				continue // rendered by EventTodoUpdate
+			}
 			if len(out) > 200 {
 				m.content = append(m.content, out[:200], fmt.Sprintf("... (%d more bytes)", len(out)-200))
 			} else {
 				m.content = append(m.content, out)
 			}
 		}
+		m.refreshViewport()
+		return m, watchRunner(m.runnerCh)
+
+	case EventTodoUpdate:
+		m.content = append(m.content, "\033[36m"+msg.Content+"\033[0m")
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
@@ -194,6 +202,18 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	if query == "/todo" {
+		m.content = append(m.content, m.senderStyle.Render(">>> ")+query)
+		m.textarea.Reset()
+		if t, ok := m.runner.agent.registry.Tool("todo").(*tools.TodoWriteTool); ok {
+			m.content = append(m.content, "\033[36m"+t.Render()+"\033[0m")
+		} else {
+			m.content = append(m.content, "\033[31mTodo tool not available\033[0m")
+		}
+		m.refreshViewport()
+		return m, nil
+	}
+
 	m.content = append(m.content, m.senderStyle.Render(">>> ")+query)
 	m.textarea.Reset()
 	m.thinking = true
@@ -235,6 +255,24 @@ func toolPreview(tc tools.ToolUseBlock) string {
 				s = s[:80] + "..."
 			}
 			return s
+		}
+	case "todo":
+		var args struct {
+			Items []struct {
+				ID     string `json:"id"`
+				Text   string `json:"text"`
+				Status string `json:"status"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(tc.Input, &args); err == nil {
+			total := len(args.Items)
+			done := 0
+			for _, item := range args.Items {
+				if item.Status == "completed" {
+					done++
+				}
+			}
+			return fmt.Sprintf("%d/%d done", done, total)
 		}
 	case "read_file", "write_file", "edit_file":
 		var args struct {

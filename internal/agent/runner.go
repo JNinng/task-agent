@@ -9,8 +9,9 @@ import (
 )
 
 type Runner struct {
-	agent    *Agent
-	messages []anthropic.BetaMessageParam
+	agent           *Agent
+	messages        []anthropic.BetaMessageParam
+	roundsSinceTodo int
 }
 
 func NewRunner(ag *Agent) *Runner {
@@ -66,6 +67,17 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 		}
 
 		if len(toolBlocks) == 0 {
+			r.roundsSinceTodo++
+			if r.roundsSinceTodo >= 3 {
+				r.roundsSinceTodo = 0
+				r.messages = append(r.messages, anthropic.NewBetaUserMessage(
+					anthropic.BetaContentBlockParamUnion{
+						OfText: &anthropic.BetaTextBlockParam{
+							Text: "<reminder>Update your todos.</reminder>",
+						},
+					}))
+				continue
+			}
 			ch <- EventDone{}
 			return
 		}
@@ -80,6 +92,23 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 
 		ch <- EventToolResults{Results: results}
 
+		usedTodo := false
+		for _, tb := range toolBlocks {
+			if tb.Name == "todo" {
+				usedTodo = true
+				break
+			}
+		}
+
+		if usedTodo {
+			r.roundsSinceTodo = 0
+			if t, ok := r.agent.registry.Tool("todo").(*tools.TodoWriteTool); ok {
+				ch <- EventTodoUpdate{Content: t.Render()}
+			}
+		} else {
+			r.roundsSinceTodo++
+		}
+
 		var contentBlocks []anthropic.BetaContentBlockParamUnion
 		for _, result := range results {
 			isError := len(result.Content) > 6 && result.Content[:6] == "Error:"
@@ -91,6 +120,12 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 					},
 					IsError: anthropic.Bool(isError),
 				},
+			})
+		}
+		if r.roundsSinceTodo >= 3 {
+			r.roundsSinceTodo = 0
+			contentBlocks = append(contentBlocks, anthropic.BetaContentBlockParamUnion{
+				OfText: &anthropic.BetaTextBlockParam{Text: "<reminder>Update your todos.</reminder>"},
 			})
 		}
 		r.messages = append(r.messages, anthropic.NewBetaUserMessage(contentBlocks...))

@@ -22,6 +22,7 @@ type ToolUseBlock struct {
 // ToolResult pairs a tool_use ID with its output content.
 type ToolResult struct {
 	ToolUseID string
+	Name      string
 	Content   string
 }
 
@@ -52,6 +53,7 @@ func (r *Registry) Dispatch(ctx context.Context, blocks []ToolUseBlock) ([]ToolR
 			if !ok {
 				results[i] = ToolResult{
 					ToolUseID: block.ID,
+					Name:      block.Name,
 					Content:   fmt.Sprintf("Error: Tool '%s' not found", block.Name),
 				}
 				return nil
@@ -60,12 +62,14 @@ func (r *Registry) Dispatch(ctx context.Context, blocks []ToolUseBlock) ([]ToolR
 			if err != nil {
 				results[i] = ToolResult{
 					ToolUseID: block.ID,
+					Name:      block.Name,
 					Content:   fmt.Sprintf("Error: %v", err),
 				}
 				return nil
 			}
 			results[i] = ToolResult{
 				ToolUseID: block.ID,
+				Name:      block.Name,
 				Content:   contentBlockToString(content),
 			}
 			return nil
@@ -75,6 +79,11 @@ func (r *Registry) Dispatch(ctx context.Context, blocks []ToolUseBlock) ([]ToolR
 		return nil, err
 	}
 	return results, nil
+}
+
+// Tool returns the tool registered under the given name, or nil.
+func (r *Registry) Tool(name string) Tool {
+	return r.tools[name]
 }
 
 // ToParams converts registered tools to BetaToolUnionParam slice for the API.
