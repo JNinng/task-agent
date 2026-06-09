@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	anthropic "github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // TodoItem represents a single todo entry.

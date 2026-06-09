@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	anthropic "github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // ReadFileTool reads file contents.

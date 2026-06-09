@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	anthropic "github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 var dangerousPatterns = []string{

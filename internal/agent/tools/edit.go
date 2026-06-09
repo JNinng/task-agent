@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	anthropic "github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // EditFileTool replaces exact text in a file.

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	anthropic "github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go"
 	"golang.org/x/sync/errgroup"
 )
 

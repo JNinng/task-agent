@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	anthropic "github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go"
 	"task-agent/internal/agent/tools"
 )
 

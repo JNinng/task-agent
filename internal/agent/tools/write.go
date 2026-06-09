@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	anthropic "github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go"
 )
 
 // WriteFileTool writes content to a file.
