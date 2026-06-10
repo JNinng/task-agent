@@ -19,6 +19,14 @@ import (
 // thinkTickMsg 思考状态下的定时刷新消息。
 type thinkTickMsg struct{}
 
+// agentCommands 定义可用的斜杠命令及其描述。
+var agentCommands = map[string]string{
+	"/exit":  "退出程序",
+	"/q":     "退出程序（快捷方式）",
+	"/todo":  "显示待办任务列表",
+	"/clear": "清空会话上下文",
+}
+
 // model 是 Bubble Tea 的核心模型，持有 UI 组件状态和展示内容。
 // agent 循环逻辑由 Runner 管理，model 仅负责展示。
 type model struct {
@@ -26,13 +34,18 @@ type model struct {
 	runnerCh <-chan any // 当前活跃的事件 channel
 
 	// UI 组件
-	textarea textarea.Model
-	viewport viewport.Model
-	content  []string
+	textarea     textarea.Model
+	viewport     viewport.Model
+	autocomplete Autocomplete
+	content      []string
 
 	senderStyle lipgloss.Style
 	thinking    bool
 	err         error
+
+	// 终端尺寸（缓存用于动态布局）。
+	termWidth  int
+	termHeight int
 }
 
 // NewTUI 创建并配置 Bubble Tea 程序实例。
@@ -57,12 +70,16 @@ func NewTUI(runner *Runner, opts ...tea.ProgramOption) *tea.Program {
 	vp.KeyMap.Left.SetEnabled(false)
 	vp.KeyMap.Right.SetEnabled(false)
 
+	ac := NewAutocomplete(agentCommands, '/')
+	ac.SetListWidth(80)
+
 	return tea.NewProgram(&model{
-		runner:      runner,
-		textarea:    ta,
-		viewport:    vp,
-		content:     []string{},
-		senderStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
+		runner:       runner,
+		textarea:     ta,
+		viewport:     vp,
+		autocomplete: ac,
+		content:      []string{},
+		senderStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
 	}, opts...)
 }
 
@@ -75,9 +92,12 @@ func (m *model) Init() tea.Cmd {
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.termWidth = msg.Width
+		m.termHeight = msg.Height
 		m.viewport.SetWidth(msg.Width)
 		m.textarea.SetWidth(msg.Width)
-		m.viewport.SetHeight(msg.Height - m.textarea.Height())
+		m.autocomplete.SetListWidth(msg.Width)
+		m.resizeViewport()
 		m.refreshViewport()
 
 	case tea.MouseMsg:
@@ -157,11 +177,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View 渲染当前 UI 为终端字符串。
 func (m *model) View() tea.View {
 	viewportView := m.viewport.View()
-	v := tea.NewView(viewportView + "\n" + m.textarea.View())
+
+	var middle string
+	if m.autocomplete.Active() {
+		middle = m.autocomplete.View() + "\n"
+	}
+
+	v := tea.NewView(viewportView + "\n" + middle + m.textarea.View())
 
 	c := m.textarea.Cursor()
 	if c != nil {
-		c.Y += lipgloss.Height(viewportView)
+		// 测量 textarea 上方所有内容的高度来计算光标 Y 偏移，
+		// 避免脆弱的手动换行符计数。
+		prefix := viewportView + "\n" + middle
+		c.Y += lipgloss.Height(prefix) - 1
 	}
 	v.Cursor = c
 	v.AltScreen = true
@@ -172,6 +201,15 @@ func (m *model) View() tea.View {
 // handleKey 处理按键消息。
 func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.thinking {
+		return m, nil
+	}
+
+	// 优先委托给自动补全——当建议面板打开时它会拦截导航键。
+	if handled, accepted := m.autocomplete.HandleKey(msg.String()); handled {
+		if accepted {
+			m.autocomplete.Apply(&m.textarea)
+		}
+		m.resizeViewport()
 		return m, nil
 	}
 
@@ -187,6 +225,9 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
+		// 每次文本变更后扫描自动补全触发字符。
+		m.autocomplete.ScanTextarea(m.textarea)
+		m.resizeViewport()
 		return m, cmd
 	}
 }
@@ -205,6 +246,7 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 	if query == "/todo" {
 		m.content = append(m.content, m.senderStyle.Render(">>> ")+query)
 		m.textarea.Reset()
+		m.autocomplete.Reset()
 		if t, ok := m.runner.agent.registry.Tool("todo").(*tools.TodoWriteTool); ok {
 			m.content = append(m.content, "\033[36m"+t.Render()+"\033[0m")
 		} else {
@@ -216,6 +258,7 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 
 	m.content = append(m.content, m.senderStyle.Render(">>> ")+query)
 	m.textarea.Reset()
+	m.autocomplete.Reset()
 	m.thinking = true
 	m.refreshViewport()
 
@@ -240,6 +283,18 @@ func thinkTick() tea.Cmd {
 	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
 		return thinkTickMsg{}
 	})
+}
+
+// resizeViewport 重新计算视口高度，使 textarea 和
+// 建议列表不重叠地排布。多减 1 是为 viewport 与
+// 建议/文本区域之间的 "\n" 分隔行留空间。
+func (m *model) resizeViewport() {
+	if m.termHeight <= 0 {
+		return
+	}
+	viewportHeight := max(1, m.termHeight-m.textarea.Height()-1-m.autocomplete.Height())
+	m.viewport.SetHeight(viewportHeight)
+	m.viewport.GotoBottom()
 }
 
 // toolPreview returns a concise preview string for a tool call block.
