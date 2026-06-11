@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"task-agent/internal/agent/skill"
 	"task-agent/internal/agent/tools"
 )
 
@@ -66,17 +68,46 @@ func New() (*Agent, error) {
 	client := anthropic.NewClient(opts...)
 
 	cwd, _ := os.Getwd()
+
+	// --- Skill loading ---
+	homeDir := os.Getenv("USERPROFILE")
+	if homeDir == "" {
+		homeDir = os.Getenv("HOME")
+	}
+	globalSkillsDir := filepath.Join(homeDir, ".task-agent", "skills")
+	projectSkillsDir := filepath.Join(cwd, ".task-agent", "skills")
+
+	loader, err := skill.NewLoader(globalSkillsDir, projectSkillsDir)
+	if err != nil {
+		return nil, fmt.Errorf("skill loader: %w", err)
+	}
+
+	// Build system prompt with two-layer skill injection
+	var systemText strings.Builder
+	systemText.WriteString(fmt.Sprintf(
+		"You are a coding agent at %s.\n"+
+			"Use tools to solve tasks. Act, don't explain.\n\n"+
+			"The todo tool is self-contained — call it directly, do not explore the codebase first.\n"+
+			"The task tool launches a subagent for complex multi-step work (research, code exploration, "+
+			"multi-file edits). Prefer task over doing exploration yourself — the subagent's intermediate "+
+			"steps won't pollute your context window. For simple single-step actions (one read, one bash "+
+			"command), use the direct tool instead.",
+		cwd,
+	))
+
+	// Layer 1: skill name + description list (~100 tokens/skill)
+	if desc := loader.Descriptions(); desc != "" {
+		systemText.WriteString("\n\nSkills available (use load_skill to get full instructions):\n")
+		systemText.WriteString(desc)
+	}
+
+	// Layer 1.5: always_load skills injected directly into system prompt
+	for _, s := range loader.AlwaysLoaded() {
+		systemText.WriteString(fmt.Sprintf("\n\n<skill name=\"%s\">\n%s\n</skill>", s.Name, s.Body))
+	}
+
 	system := []anthropic.BetaTextBlockParam{
-		{Text: fmt.Sprintf(
-			"You are a coding agent at %s.\n"+
-				"Use tools to solve tasks. Act, don't explain.\n\n"+
-				"The todo tool is self-contained — call it directly, do not explore the codebase first.\n"+
-				"The task tool launches a subagent for complex multi-step work (research, code exploration, "+
-				"multi-file edits). Prefer task over doing exploration yourself — the subagent's intermediate "+
-				"steps won't pollute your context window. For simple single-step actions (one read, one bash "+
-				"command), use the direct tool instead.",
-			cwd,
-		)},
+		{Text: systemText.String()},
 	}
 
 	registry := tools.NewRegistry(
@@ -86,6 +117,7 @@ func New() (*Agent, error) {
 		&tools.EditFileTool{Workdir: cwd},
 		&tools.TodoWriteTool{},
 		tools.NewSubagentTool(&client, anthropic.Model(modelID), cwd),
+		skill.NewLoadSkillTool(loader),
 	)
 
 	return &Agent{
