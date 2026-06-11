@@ -67,7 +67,16 @@ func New() (*Agent, error) {
 
 	cwd, _ := os.Getwd()
 	system := []anthropic.BetaTextBlockParam{
-		{Text: fmt.Sprintf("You are a coding agent at %s.\nUse tools to solve tasks. Act, don't explain.\n\nThe todo tool is self-contained — call it directly, do not explore the codebase first.", cwd)},
+		{Text: fmt.Sprintf(
+			"You are a coding agent at %s.\n"+
+				"Use tools to solve tasks. Act, don't explain.\n\n"+
+				"The todo tool is self-contained — call it directly, do not explore the codebase first.\n"+
+				"The task tool launches a subagent for complex multi-step work (research, code exploration, "+
+				"multi-file edits). Prefer task over doing exploration yourself — the subagent's intermediate "+
+				"steps won't pollute your context window. For simple single-step actions (one read, one bash "+
+				"command), use the direct tool instead.",
+			cwd,
+		)},
 	}
 
 	registry := tools.NewRegistry(
@@ -76,6 +85,7 @@ func New() (*Agent, error) {
 		&tools.WriteFileTool{Workdir: cwd},
 		&tools.EditFileTool{Workdir: cwd},
 		&tools.TodoWriteTool{},
+		tools.NewSubagentTool(&client, anthropic.Model(modelID), cwd),
 	)
 
 	return &Agent{

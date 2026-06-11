@@ -138,6 +138,21 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
+	case tools.SubagentProgress:
+		status := fmt.Sprintf("\033[33m  task: %s\033[0m", msg.Description)
+		if msg.Turn > 0 {
+			// In-progress update from subagent loop: replace previous status line.
+			if len(m.content) > 0 && strings.HasPrefix(m.content[len(m.content)-1], "\033[33m  task:") {
+				m.content[len(m.content)-1] = fmt.Sprintf("\033[33m  task: %s (%d/%d)\033[0m", msg.Description, msg.Turn, msg.MaxTurns)
+			} else {
+				m.content = append(m.content, fmt.Sprintf("\033[33m  task: %s (%d/%d)\033[0m", msg.Description, msg.Turn, msg.MaxTurns))
+			}
+		} else {
+			m.content = append(m.content, status)
+		}
+		m.refreshViewport()
+		return m, watchRunner(m.runnerCh)
+
 	case EventToolResults:
 		for _, tr := range msg.Results {
 			out := tr.Content
@@ -328,6 +343,21 @@ func toolPreview(tc tools.ToolUseBlock) string {
 				}
 			}
 			return fmt.Sprintf("%d/%d done", done, total)
+		}
+	case "task":
+		var args struct {
+			Prompt      string `json:"prompt"`
+			Description string `json:"description"`
+		}
+		if err := json.Unmarshal(tc.Input, &args); err == nil {
+			if args.Description != "" {
+				return args.Description
+			}
+			s := args.Prompt
+			if len(s) > 80 {
+				s = s[:80] + "..."
+			}
+			return s
 		}
 	case "read_file", "write_file", "edit_file":
 		var args struct {

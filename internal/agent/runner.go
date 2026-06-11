@@ -84,7 +84,36 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 
 		ch <- EventToolCalls{Tools: toolBlocks}
 
-		results, err := r.agent.registry.Dispatch(ctx, toolBlocks)
+		// Emit subagent progress events for task tool calls so the TUI
+		// can show which sub-task is currently running, and wire the
+		// event channel through context so the subagent can send
+		// turn-by-turn progress while it executes.
+		for _, tb := range toolBlocks {
+			if tb.Name == "task" {
+				var taskArgs struct {
+					Description string `json:"description"`
+				}
+				json.Unmarshal(tb.Input, &taskArgs)
+				desc := taskArgs.Description
+				if desc == "" {
+					var taskArgs2 struct {
+						Prompt string `json:"prompt"`
+					}
+					json.Unmarshal(tb.Input, &taskArgs2)
+					desc = taskArgs2.Prompt
+					if len(desc) > 60 {
+						desc = desc[:60] + "..."
+					}
+				}
+				ch <- tools.SubagentProgress{Description: desc, Turn: 0, MaxTurns: 30}
+			}
+		}
+
+		taskCtx := ctx
+		if hasTaskBlock(toolBlocks) {
+			taskCtx = tools.WithEventChannel(ctx, ch)
+		}
+		results, err := r.agent.registry.Dispatch(taskCtx, toolBlocks)
 		if err != nil {
 			ch <- EventError{Err: err}
 			return
@@ -130,4 +159,14 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 		}
 		r.messages = append(r.messages, anthropic.NewBetaUserMessage(contentBlocks...))
 	}
+}
+
+// hasTaskBlock reports whether any tool_use block is a subagent task call.
+func hasTaskBlock(blocks []tools.ToolUseBlock) bool {
+	for _, b := range blocks {
+		if b.Name == "task" {
+			return true
+		}
+	}
+	return false
 }
