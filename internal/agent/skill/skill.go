@@ -66,7 +66,7 @@ func (l *Loader) loadDir(dir string) error {
 			if os.IsNotExist(err) {
 				continue // directory without SKILL.md is ok
 			}
-			return err
+			return fmt.Errorf("%s: %w", skillPath, err)
 		}
 		skill, err := parseSkill(entry.Name(), data)
 		if err != nil {
@@ -101,17 +101,28 @@ func parseSkill(dirName string, data []byte) (*Skill, error) {
 }
 
 // splitFrontmatter extracts YAML between the first pair of --- lines.
+// Lines containing only --- (with optional whitespace) serve as delimiters.
 func splitFrontmatter(content string) (frontmatter, string, error) {
-	if !strings.HasPrefix(content, "---") {
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return frontmatter{}, "", fmt.Errorf("frontmatter must start with ---")
 	}
-	rest := content[3:]
-	idx := strings.Index(rest, "\n---")
-	if idx < 0 {
+
+	// Find closing --- line (first trimmed- --- after the opening delimiter)
+	closeIdx := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			closeIdx = i
+			break
+		}
+	}
+	if closeIdx < 0 {
 		return frontmatter{}, "", fmt.Errorf("frontmatter must end with ---")
 	}
-	yamlBlock := rest[:idx]
-	body := rest[idx+4:] // skip "\n---"
+
+	yamlBlock := strings.Join(lines[1:closeIdx], "\n")
+	body := strings.Join(lines[closeIdx+1:], "\n")
+
 	var fm frontmatter
 	if err := yaml.Unmarshal([]byte(yamlBlock), &fm); err != nil {
 		return frontmatter{}, "", fmt.Errorf("invalid YAML: %w", err)
