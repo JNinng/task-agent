@@ -82,6 +82,24 @@ func TestParseSkill_NoFrontmatter(t *testing.T) {
 	}
 }
 
+func TestParseSkill_CRLFFile(t *testing.T) {
+	content := "---\r\nname: crlf\r\ndescription: Windows line endings\r\n---\r\n\r\nBody with CRLF.\r\n"
+
+	s, err := parseSkill("crlf", []byte(content))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s.Name != "crlf" {
+		t.Errorf("name = %q, want %q", s.Name, "crlf")
+	}
+	if s.Description != "Windows line endings" {
+		t.Errorf("description = %q", s.Description)
+	}
+	if s.Body != "Body with CRLF." {
+		t.Errorf("body = %q, want %q", s.Body, "Body with CRLF.")
+	}
+}
+
 func TestParseSkill_EmptyBody(t *testing.T) {
 	content := "---\nname: minimal\ndescription: Just metadata\n---\n\n"
 

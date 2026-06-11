@@ -103,6 +103,7 @@ func parseSkill(dirName string, data []byte) (*Skill, error) {
 // splitFrontmatter extracts YAML between the first pair of --- lines.
 // Lines containing only --- (with optional whitespace) serve as delimiters.
 func splitFrontmatter(content string) (frontmatter, string, error) {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
 	lines := strings.Split(content, "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return frontmatter{}, "", fmt.Errorf("frontmatter must start with ---")
