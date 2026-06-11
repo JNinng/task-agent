@@ -117,6 +117,16 @@ func (t *TodoWriteTool) Execute(ctx context.Context, input json.RawMessage) ([]a
 	}, nil
 }
 
+// HasIncomplete returns true if any item is pending or in_progress.
+func (t *TodoWriteTool) HasIncomplete() bool {
+	for _, item := range t.Items {
+		if item.Status == "pending" || item.Status == "in_progress" {
+			return true
+		}
+	}
+	return false
+}
+
 // Render returns the formatted todo list string.
 func (t *TodoWriteTool) Render() string {
 	if len(t.Items) == 0 {

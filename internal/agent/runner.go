@@ -67,8 +67,10 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 		}
 
 		if len(toolBlocks) == 0 {
-			r.roundsSinceTodo++
-			if r.roundsSinceTodo >= 3 {
+			if r.hasIncompleteTodos() {
+				r.roundsSinceTodo++
+			}
+			if r.hasIncompleteTodos() && r.roundsSinceTodo >= 3 {
 				r.roundsSinceTodo = 0
 				r.messages = append(r.messages, anthropic.NewBetaUserMessage(
 					anthropic.BetaContentBlockParamUnion{
@@ -134,7 +136,7 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 			if t, ok := r.agent.registry.Tool("todo").(*tools.TodoWriteTool); ok {
 				ch <- EventTodoUpdate{Content: t.Render()}
 			}
-		} else {
+		} else if r.hasIncompleteTodos() {
 			r.roundsSinceTodo++
 		}
 
@@ -151,7 +153,7 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 				},
 			})
 		}
-		if r.roundsSinceTodo >= 3 {
+		if r.hasIncompleteTodos() && r.roundsSinceTodo >= 3 {
 			r.roundsSinceTodo = 0
 			contentBlocks = append(contentBlocks, anthropic.BetaContentBlockParamUnion{
 				OfText: &anthropic.BetaTextBlockParam{Text: "<reminder>Update your todos.</reminder>"},
@@ -159,6 +161,15 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 		}
 		r.messages = append(r.messages, anthropic.NewBetaUserMessage(contentBlocks...))
 	}
+}
+
+// hasIncompleteTodos reports whether the todo list has any pending or
+// in_progress items that still need work.
+func (r *Runner) hasIncompleteTodos() bool {
+	if t, ok := r.agent.registry.Tool("todo").(*tools.TodoWriteTool); ok {
+		return t.HasIncomplete()
+	}
+	return false
 }
 
 // hasTaskBlock reports whether any tool_use block is a subagent task call.
