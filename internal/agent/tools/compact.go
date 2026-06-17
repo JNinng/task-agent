@@ -30,13 +30,8 @@ func (t *CompactTool) Description() string {
 
 func (t *CompactTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 	return anthropic.BetaToolInputSchemaParam{
-		Properties: map[string]any{
-			"reason": map[string]any{
-				"type":        "string",
-				"description": "Why you are compacting now",
-			},
-		},
-		Required: []string{},
+		Properties: map[string]any{},
+		Required:   []string{},
 	}
 }
 
