@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"unicode/utf8"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -61,6 +62,7 @@ func microCompact(messages []anthropic.BetaMessageParam, keepRecent int) {
 		for k, c := range tr.Content {
 			if c.OfText != nil && len(c.OfText.Text) > 100 {
 				c.OfText.Text = "[Previous tool result compacted]"
+				// Write back the modified copy into the slice
 				tr.Content[k] = c
 			}
 		}
@@ -70,7 +72,7 @@ func microCompact(messages []anthropic.BetaMessageParam, keepRecent int) {
 // saveTranscript writes all messages as JSONL to a timestamped file.
 // Directory is created if it doesn't exist.
 func saveTranscript(dir string, messages []anthropic.BetaMessageParam) (string, error) {
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", fmt.Errorf("mkdir transcript dir: %w", err)
 	}
 	path := filepath.Join(dir, fmt.Sprintf("transcript_%d.jsonl", time.Now().Unix()))
@@ -85,6 +87,10 @@ func saveTranscript(dir string, messages []anthropic.BetaMessageParam) (string, 
 		if err := enc.Encode(msg); err != nil {
 			return "", fmt.Errorf("encode message: %w", err)
 		}
+	}
+
+	if err := f.Sync(); err != nil {
+		return "", fmt.Errorf("sync transcript: %w", err)
 	}
 	return path, nil
 }
@@ -103,7 +109,11 @@ func (r *Runner) autoCompact(ctx context.Context) error {
 	raw, _ := json.Marshal(r.messages)
 	payload := string(raw)
 	if len(payload) > 80_000 {
+		// Truncate at the byte boundary, backing up to avoid splitting a multi-byte rune
 		payload = payload[:80_000]
+		for len(payload) > 0 && !utf8.Valid([]byte{payload[len(payload)-1]}) {
+			payload = payload[:len(payload)-1]
+		}
 	}
 
 	// 3. Call LLM to summarize
