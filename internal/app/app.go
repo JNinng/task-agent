@@ -19,7 +19,7 @@ func Run(ctx context.Context) error {
 		return fmt.Errorf("agent init: %w", err)
 	}
 
-	runner := agent.NewRunner(ag)
+	runner := ag.Runner
 	p := agent.NewTUI(runner, tea.WithContext(ctx))
 
 	if _, err := p.Run(); err != nil {

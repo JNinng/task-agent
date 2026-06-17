@@ -18,6 +18,7 @@ type Agent struct {
 	model    anthropic.Model
 	system   []anthropic.BetaTextBlockParam
 	registry *tools.Registry
+	Runner   *Runner
 }
 
 type claudeSettings struct {
@@ -123,10 +124,9 @@ func New() (*Agent, error) {
 
 	var compactTrigger func() (string, error)
 
-	runner := NewRunner(ag, compactCfg, func(fn func() (string, error)) {
+	ag.Runner = NewRunner(ag, compactCfg, func(fn func() (string, error)) {
 		compactTrigger = fn
 	})
-	_ = runner // will be used in full integration
 
 	ag.registry = tools.NewRegistry(
 		tools.BashTool{},
