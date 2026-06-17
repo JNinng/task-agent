@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"task-agent/internal/agent/tools"
@@ -12,10 +13,22 @@ type Runner struct {
 	agent           *Agent
 	messages        []anthropic.BetaMessageParam
 	roundsSinceTodo int
+	compactCfg      CompactionConfig
 }
 
-func NewRunner(ag *Agent) *Runner {
-	return &Runner{agent: ag}
+func NewRunner(ag *Agent, cfg CompactionConfig, setCompact func(func() (string, error))) *Runner {
+	r := &Runner{agent: ag, compactCfg: cfg}
+	setCompact(r.compact)
+	return r
+}
+
+// compact wraps autoCompact for the compact tool callback.
+// It returns a user-facing result string.
+func (r *Runner) compact() (string, error) {
+	if err := r.autoCompact(context.Background()); err != nil {
+		return "", err
+	}
+	return "Conversation compacted successfully. Full transcript saved to disk.", nil
 }
 
 func (r *Runner) Run(ctx context.Context, input string) <-chan any {
@@ -36,6 +49,9 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 	ch <- EventThinking{}
 
 	for {
+		// Layer 1: micro_compact — replace old tool_results with placeholders
+		microCompact(r.messages, r.compactCfg.MicroKeepRecent)
+
 		resp, err := r.agent.client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
 			Model:     r.agent.model,
 			System:    r.agent.system,
@@ -46,6 +62,19 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 		if err != nil {
 			ch <- EventError{Err: err}
 			return
+		}
+
+		// Layer 2: auto_compact — check token threshold after API response
+		if r.compactCfg.AutoThreshold > 0 && resp.Usage.InputTokens > int64(r.compactCfg.AutoThreshold) {
+			ch <- EventText{Content: fmt.Sprintf(
+				"[context: %d tokens — auto-compacting]", int64(r.compactCfg.AutoThreshold))}
+			if err := r.autoCompact(ctx); err != nil {
+				ch <- EventText{Content: fmt.Sprintf("[compact warning: %v]", err)}
+			} else {
+				ch <- EventText{Content: "[auto-compact done]"}
+			}
+			ch <- EventThinking{}
+			continue
 		}
 
 		r.messages = append(r.messages, resp.ToParam())
