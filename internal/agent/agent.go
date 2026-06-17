@@ -112,7 +112,23 @@ func New() (*Agent, error) {
 		{Text: systemText.String()},
 	}
 
-	registry := tools.NewRegistry(
+	// Create Agent struct first so we can wire it to the Runner
+	ag := &Agent{
+		client: &client,
+		model:  modelID,
+		system: system,
+	}
+
+	compactCfg := DefaultCompactionConfig()
+
+	var compactTrigger func() (string, error)
+
+	runner := NewRunner(ag, compactCfg, func(fn func() (string, error)) {
+		compactTrigger = fn
+	})
+	_ = runner // will be used in full integration
+
+	ag.registry = tools.NewRegistry(
 		tools.BashTool{},
 		&tools.ReadFileTool{Workdir: cwd},
 		&tools.WriteFileTool{Workdir: cwd},
@@ -120,12 +136,13 @@ func New() (*Agent, error) {
 		&tools.TodoWriteTool{},
 		tools.NewSubagentTool(&client, anthropic.Model(modelID), cwd),
 		skill.NewLoadSkillTool(loader),
+		tools.NewCompactTool(func() (string, error) {
+			if compactTrigger == nil {
+				return "", fmt.Errorf("compact not initialized")
+			}
+			return compactTrigger()
+		}),
 	)
 
-	return &Agent{
-		client:   &client,
-		model:    modelID,
-		system:   system,
-		registry: registry,
-	}, nil
+	return ag, nil
 }
