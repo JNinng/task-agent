@@ -97,7 +97,9 @@ func New() (*Agent, error) {
 
 	// Layer 1: skill name + description list (~100 tokens/skill)
 	if desc := loader.Descriptions(); desc != "" {
-		systemText.WriteString("\n\nSkills available (use load_skill to get full instructions):\n")
+		systemText.WriteString("\n\nSkills loaded from ~/.task-agent/skills/ and " +
+			"<project>/.task-agent/skills/. The list below is complete — use " +
+			"load_skill to expand full instructions. Do NOT search the filesystem for skills.\n")
 		systemText.WriteString(desc)
 	}
 

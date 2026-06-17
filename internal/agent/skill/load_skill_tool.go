@@ -21,7 +21,8 @@ func NewLoadSkillTool(loader *Loader) *LoadSkillTool {
 func (t *LoadSkillTool) Name() string { return "load_skill" }
 
 func (t *LoadSkillTool) Description() string {
-	return "Load a skill's full instructions by name. Use this when a task matches an available skill."
+	return "Load a skill's full instructions by name. Skill names are listed in the system prompt. " +
+		"Use this when a task matches an available skill."
 }
 
 func (t *LoadSkillTool) InputSchema() anthropic.BetaToolInputSchemaParam {

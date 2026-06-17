@@ -24,7 +24,12 @@ var dangerousPatterns = []string{
 type BashTool struct{}
 
 func (BashTool) Name() string        { return "bash" }
-func (BashTool) Description() string { return "Run a shell command." }
+func (BashTool) Description() string {
+	if runtime.GOOS == "windows" {
+		return "Run a PowerShell command."
+	}
+	return "Run a bash shell command."
+}
 
 func (BashTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 	return anthropic.BetaToolInputSchemaParam{
