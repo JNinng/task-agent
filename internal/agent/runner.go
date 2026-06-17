@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"task-agent/internal/agent/tools"
@@ -25,7 +26,9 @@ func NewRunner(ag *Agent, cfg CompactionConfig, setCompact func(func() (string, 
 // compact wraps autoCompact for the compact tool callback.
 // It returns a user-facing result string.
 func (r *Runner) compact() (string, error) {
-	if err := r.autoCompact(context.Background()); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := r.autoCompact(ctx); err != nil {
 		return "", err
 	}
 	return "Conversation compacted successfully. Full transcript saved to disk.", nil
@@ -66,6 +69,8 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 
 		// Layer 2: auto_compact — check token threshold after API response
 		if r.compactCfg.AutoThreshold > 0 && resp.Usage.InputTokens > int64(r.compactCfg.AutoThreshold) {
+			// Append the response so the compressed summary includes this turn
+			r.messages = append(r.messages, resp.ToParam())
 			ch <- EventText{Content: fmt.Sprintf(
 				"[context: %d tokens — auto-compacting]", int64(r.compactCfg.AutoThreshold))}
 			if err := r.autoCompact(ctx); err != nil {
