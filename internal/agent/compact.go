@@ -106,7 +106,10 @@ func (r *Runner) autoCompact(ctx context.Context) error {
 	}
 
 	// 2. Serialize messages for summarization (truncated to ~80k chars)
-	raw, _ := json.Marshal(r.messages)
+	raw, err := json.Marshal(r.messages)
+	if err != nil {
+		return fmt.Errorf("marshal messages: %w", err)
+	}
 	payload := string(raw)
 	if len(payload) > 80_000 {
 		// Truncate at the byte boundary, backing up to avoid splitting a multi-byte rune
