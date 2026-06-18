@@ -10,6 +10,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"task-agent/internal/agent/skill"
+	"task-agent/internal/agent/tasks"
 	"task-agent/internal/agent/tools"
 )
 
@@ -83,12 +84,23 @@ func New() (*Agent, error) {
 		return nil, fmt.Errorf("skill loader: %w", err)
 	}
 
+	// --- Task graph persistence ---
+	taskMgr, err := tasks.NewManager(filepath.Join(homeDir, ".task-agent"), tasks.ResolveTaskListID(""))
+	if err != nil {
+		return nil, fmt.Errorf("task manager: %w", err)
+	}
+
 	// Build system prompt with two-layer skill injection
 	var systemText strings.Builder
 	systemText.WriteString(fmt.Sprintf(
 		"You are a coding agent at %s.\n"+
 			"Use tools to solve tasks. Act, don't explain.\n\n"+
-			"The todo tool is self-contained — call it directly, do not explore the codebase first.\n"+
+			"The todo tool is a quick in-memory checklist for this session only.\n"+
+			"For structured, persistent work with dependencies, use the task graph tools:\n"+
+			"  - task_create — create tasks in the persistent graph\n"+
+			"  - task_update — update status/dependencies (completed tasks auto-unlock dependents)\n"+
+			"  - task_list   — list all tasks with status and blockers\n"+
+			"  - task_get    — get full details of a task\n"+
 			"The task tool launches a subagent for complex multi-step work (research, code exploration, "+
 			"multi-file edits). Prefer task over doing exploration yourself — the subagent's intermediate "+
 			"steps won't pollute your context window. For simple single-step actions (one read, one bash "+
@@ -134,6 +146,10 @@ func New() (*Agent, error) {
 		&tools.WriteFileTool{Workdir: cwd},
 		&tools.EditFileTool{Workdir: cwd},
 		&tools.TodoWriteTool{},
+		&tools.TaskCreateTool{Mgr: taskMgr},
+		&tools.TaskGetTool{Mgr: taskMgr},
+		&tools.TaskListTool{Mgr: taskMgr},
+		&tools.TaskUpdateTool{Mgr: taskMgr},
 		tools.NewSubagentTool(&client, anthropic.Model(modelID), cwd),
 		skill.NewLoadSkillTool(loader),
 		tools.NewCompactTool(func() (string, error) {
