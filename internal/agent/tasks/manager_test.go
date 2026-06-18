@@ -242,8 +242,8 @@ func TestDiamondDependency(t *testing.T) {
 	m.Create("C", "")
 	m.Create("D", "")
 	m.Update("1", TaskUpdate{AddBlocks: []string{"2", "3"}}) // A blocks B, C
-	m.Update("2", TaskUpdate{AddBlocks: []string{"4"}})       // B blocks D
-	m.Update("3", TaskUpdate{AddBlocks: []string{"4"}})       // C blocks D
+	m.Update("2", TaskUpdate{AddBlocks: []string{"4"}})      // B blocks D
+	m.Update("3", TaskUpdate{AddBlocks: []string{"4"}})      // C blocks D
 
 	// D is blocked by both B and C.
 	d, _ := m.Get("4")

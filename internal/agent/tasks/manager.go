@@ -28,8 +28,8 @@ type Task struct {
 	Description string         `json:"description"`
 	ActiveForm  string         `json:"activeForm,omitempty"`
 	Owner       string         `json:"owner,omitempty"`
-	Status      string         `json:"status"` // pending | in_progress | completed | deleted
-	Blocks      []string       `json:"blocks"` // tasks this one blocks
+	Status      string         `json:"status"`    // pending | in_progress | completed | deleted
+	Blocks      []string       `json:"blocks"`    // tasks this one blocks
 	BlockedBy   []string       `json:"blockedBy"` // tasks that block this one
 	Metadata    map[string]any `json:"metadata,omitempty"`
 }

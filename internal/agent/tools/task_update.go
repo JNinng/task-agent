@@ -60,23 +60,23 @@ func (t *TaskUpdateTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 
 func (t *TaskUpdateTool) Execute(ctx context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
 	var args struct {
-		TaskID        string         `json:"taskId"`
-		Status        *string        `json:"status"`
-		Owner         *string        `json:"owner"`
-		AddBlocks     []string       `json:"addBlocks"`
-		AddBlockedBy  []string       `json:"addBlockedBy"`
-		Metadata      map[string]any `json:"metadata"`
+		TaskID       string         `json:"taskId"`
+		Status       *string        `json:"status"`
+		Owner        *string        `json:"owner"`
+		AddBlocks    []string       `json:"addBlocks"`
+		AddBlockedBy []string       `json:"addBlockedBy"`
+		Metadata     map[string]any `json:"metadata"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("task_update: %w", err)
 	}
 
 	upd := tasks.TaskUpdate{
-		Status:     args.Status,
-		Owner:      args.Owner,
-		AddBlocks:  args.AddBlocks,
+		Status:       args.Status,
+		Owner:        args.Owner,
+		AddBlocks:    args.AddBlocks,
 		AddBlockedBy: args.AddBlockedBy,
-		Metadata:   args.Metadata,
+		Metadata:     args.Metadata,
 	}
 
 	task, err := t.Mgr.Update(args.TaskID, upd)

@@ -23,7 +23,7 @@ var dangerousPatterns = []string{
 // BashTool executes shell commands.
 type BashTool struct{}
 
-func (BashTool) Name() string        { return "bash" }
+func (BashTool) Name() string { return "bash" }
 func (BashTool) Description() string {
 	if runtime.GOOS == "windows" {
 		return "Run a PowerShell command."
