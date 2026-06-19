@@ -119,13 +119,26 @@ func (r *Runner) autoCompact(ctx context.Context) error {
 		}
 	}
 
-	// 3. Call LLM to summarize
+	// 3. Call LLM to summarize — prompt engineered to preserve project
+	// context so the model can continue without re-reading files.
 	summarizeResp, err := r.agent.client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
 		Model: r.agent.model,
 		System: []anthropic.BetaTextBlockParam{
-			{Text: "Summarize this conversation for continuity. " +
-				"Include: current goals, completed steps, key decisions, open issues. " +
-				"Be concise (under 1500 tokens)."},
+			{Text: "Summarize this conversation so another instance of you can " +
+				"continue seamlessly without re-doing work. Your summary will " +
+				"REPLACE the entire conversation history.\n\n" +
+				"REQUIRED sections (use **bold** headers):\n" +
+				"1. **Current goals** — what the user is trying to accomplish\n" +
+				"2. **Project context** — project structure, technologies, key files " +
+				"and what was learned from reading them (include file paths)\n" +
+				"3. **Files already explored** — list every file that was read or " +
+				"listed so the next instance does NOT re-read them unnecessarily\n" +
+				"4. **Completed steps** — what has been done so far\n" +
+				"5. **Key decisions** — decisions made and their rationale\n" +
+				"6. **Open issues** — what still needs to be resolved\n\n" +
+				"The **Files already explored** section is critical: without it the " +
+				"next instance will waste time re-reading files. Be thorough.\n\n" +
+				"Be concise — under 1500 tokens total."},
 		},
 		Messages: []anthropic.BetaMessageParam{
 			{Role: "user", Content: []anthropic.BetaContentBlockParamUnion{
@@ -149,11 +162,19 @@ func (r *Runner) autoCompact(ctx context.Context) error {
 		return fmt.Errorf("summarize returned empty text")
 	}
 
-	// 5. Replace all messages with compressed form
+	// 5. Replace all messages with compressed form.
+	// The header instructs the model to trust the summary and not re-do work.
 	r.messages = []anthropic.BetaMessageParam{
 		{Role: "user", Content: []anthropic.BetaContentBlockParamUnion{
 			{OfText: &anthropic.BetaTextBlockParam{
-				Text: fmt.Sprintf("[Compressed conversation]\nTranscript: %s\n\n%s", path, summary),
+				Text: "[Compressed conversation]\n" +
+					"Transcript: " + path + "\n\n" +
+					"**Continuity Summary** — the conversation history above has been " +
+					"compressed. The summary below captures all essential context. " +
+					"Trust it: do NOT re-read files listed under \"Files already explored\" " +
+					"unless you need details beyond what the summary provides. " +
+					"Pick up where the conversation left off.\n\n" +
+					summary,
 			}},
 		}},
 	}

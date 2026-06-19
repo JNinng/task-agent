@@ -187,10 +187,17 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 		// the compact tool), skip appending tool_result blocks — their
 		// tool_use counterparts no longer exist in the message history
 		// and the API would reject orphaned tool_result blocks.
+		//
+		// Unlike autoCompact (layer 2) which continues to let the model
+		// pick up mid-task, a manual compact means the model explicitly
+		// requested compaction. There is nothing to respond to: exit the
+		// loop so the user sees the compact result and types the next
+		// input. This prevents the model from auto-responding with
+		// redundant project exploration or capability re-listing.
 		if r.compacted {
 			r.compacted = false
-			ch <- EventThinking{}
-			continue
+			ch <- EventDone{}
+			return
 		}
 
 		var contentBlocks []anthropic.BetaContentBlockParamUnion
