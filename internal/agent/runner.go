@@ -15,6 +15,7 @@ type Runner struct {
 	messages        []anthropic.BetaMessageParam
 	roundsSinceTodo int
 	compactCfg      CompactionConfig
+	compacted       bool // set when autoCompact replaces messages; skips tool_result appending
 }
 
 func NewRunner(ag *Agent, cfg CompactionConfig, setCompact func(func() (string, error))) *Runner {
@@ -31,6 +32,7 @@ func (r *Runner) compact() (string, error) {
 	if err := r.autoCompact(ctx); err != nil {
 		return "", err
 	}
+	r.compacted = true
 	return "Conversation compacted successfully. Full transcript saved to disk.", nil
 }
 
@@ -172,6 +174,16 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 			}
 		} else if r.hasIncompleteTodos() {
 			r.roundsSinceTodo++
+		}
+
+		// When compaction replaced r.messages during tool dispatch (e.g.
+		// the compact tool), skip appending tool_result blocks — their
+		// tool_use counterparts no longer exist in the message history
+		// and the API would reject orphaned tool_result blocks.
+		if r.compacted {
+			r.compacted = false
+			ch <- EventThinking{}
+			continue
 		}
 
 		var contentBlocks []anthropic.BetaContentBlockParamUnion
