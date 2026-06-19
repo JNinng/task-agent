@@ -24,6 +24,13 @@ func NewRunner(ag *Agent, cfg CompactionConfig, setCompact func(func() (string, 
 	return r
 }
 
+// Messages returns a copy of the current message history for inspection.
+func (r *Runner) Messages() []anthropic.BetaMessageParam {
+	cp := make([]anthropic.BetaMessageParam, len(r.messages))
+	copy(cp, r.messages)
+	return cp
+}
+
 // compact wraps autoCompact for the compact tool callback.
 // It returns a user-facing result string.
 func (r *Runner) compact() (string, error) {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,15 +18,18 @@ import (
 	"task-agent/internal/agent/tools"
 )
 
+const memctxDefaultDir = ".task-agent/memctx"
+
 // thinkTickMsg 思考状态下的定时刷新消息。
 type thinkTickMsg struct{}
 
 // agentCommands 定义可用的斜杠命令及其描述。
 var agentCommands = map[string]string{
-	"/exit":  "退出程序",
-	"/q":     "退出程序（快捷方式）",
-	"/todo":  "显示待办任务列表",
-	"/clear": "清空会话上下文",
+	"/exit":   "退出程序",
+	"/q":      "退出程序（快捷方式）",
+	"/todo":   "显示待办任务列表",
+	"/clear":  "清空会话上下文",
+	"/memctx": "输出当前上下文 JSON（/memctx <file> 保存到文件）",
 }
 
 // model 是 Bubble Tea 的核心模型，持有 UI 组件状态和展示内容。
@@ -271,6 +276,15 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if query == "/memctx" || strings.HasPrefix(query, "/memctx ") {
+		m.content = append(m.content, m.senderStyle.Render(">>> ")+query)
+		m.textarea.Reset()
+		m.autocomplete.Reset()
+		m.handleMemctx(query)
+		m.refreshViewport()
+		return m, nil
+	}
+
 	m.content = append(m.content, m.senderStyle.Render(">>> ")+query)
 	m.textarea.Reset()
 	m.autocomplete.Reset()
@@ -368,6 +382,68 @@ func toolPreview(tc tools.ToolUseBlock) string {
 		}
 	}
 	return "..."
+}
+
+// handleMemctx outputs the current message context as JSON.
+// Without arguments it prints to the terminal viewport.
+// With a filename argument (e.g. "/memctx t.jsonl") it writes
+// JSONL to .task-agent/memctx/<filename>.
+func (m *model) handleMemctx(query string) {
+	msgs := m.runner.Messages()
+
+	// Parse optional filename argument
+	arg := strings.TrimPrefix(query, "/memctx")
+	arg = strings.TrimSpace(arg)
+
+	if arg != "" {
+		// Write to file
+		dir := memctxDefaultDir
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			m.content = append(m.content, fmt.Sprintf("\033[31mmemctx: mkdir %s: %v\033[0m", dir, err))
+			return
+		}
+		path := filepath.Join(dir, arg)
+		f, err := os.Create(path)
+		if err != nil {
+			m.content = append(m.content, fmt.Sprintf("\033[31mmemctx: create %s: %v\033[0m", path, err))
+			return
+		}
+		defer f.Close()
+
+		enc := json.NewEncoder(f)
+		count := 0
+		for _, msg := range msgs {
+			if err := enc.Encode(msg); err != nil {
+				m.content = append(m.content, fmt.Sprintf("\033[31mmemctx: encode msg %d: %v\033[0m", count, err))
+				return
+			}
+			count++
+		}
+		m.content = append(m.content, fmt.Sprintf("memctx: %d messages → \033[32m%s\033[0m", count, path))
+		return
+	}
+
+	// Print to terminal (one JSON object per line for readability)
+	if len(msgs) == 0 {
+		m.content = append(m.content, "memctx: (no messages)")
+		return
+	}
+
+	m.content = append(m.content, fmt.Sprintf("memctx: %d messages", len(msgs)))
+	for i, msg := range msgs {
+		data, err := json.MarshalIndent(msg, "", "  ")
+		if err != nil {
+			m.content = append(m.content, fmt.Sprintf("\033[31m  [%d] marshal error: %v\033[0m", i, err))
+			continue
+		}
+		// Truncate per-message output to avoid flooding the terminal
+		s := string(data)
+		const maxPerMsg = 2000
+		if len(s) > maxPerMsg {
+			s = s[:maxPerMsg] + fmt.Sprintf("\n  ... (%d more bytes)", len(s)-maxPerMsg)
+		}
+		m.content = append(m.content, fmt.Sprintf("  [%d] %s", i, s))
+	}
 }
 
 // refreshViewport 根据 content 刷新 viewport 的显示内容。
