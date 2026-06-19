@@ -29,7 +29,7 @@ var agentCommands = map[string]string{
 	"/q":      "退出程序（快捷方式）",
 	"/todo":   "显示待办任务列表",
 	"/clear":  "清空会话上下文",
-	"/memctx": "输出当前上下文 JSON（/memctx <file> 保存到文件）",
+	"/memctx": "输出上下文 /memctx [file]（* 快速导出；. 当前目录；自动补 .jsonl；非法路径回退到默认目录）",
 }
 
 // model 是 Bubble Tea 的核心模型，持有 UI 组件状态和展示内容。
@@ -400,10 +400,40 @@ func toolPreview(tc tools.ToolUseBlock) string {
 	return "..."
 }
 
+// isValidPath checks if the path is syntactically valid on this OS.
+// Control characters (0-31) are universally invalid in paths.
+// The filename component must not contain Windows-invalid characters
+// (< > : " | ? *) — these are bad practice everywhere.
+func isValidPath(p string) bool {
+	if p == "" {
+		return false
+	}
+	for _, r := range p {
+		if r < 32 {
+			return false
+		}
+	}
+	base := filepath.Base(p)
+	if strings.ContainsAny(base, `<>:"|?*`) {
+		return false
+	}
+	return true
+}
+
 // handleMemctx outputs the current message context as JSON.
 // Without arguments it prints to the terminal viewport.
-// With a filename argument (e.g. "/memctx t.jsonl") it writes
-// JSONL to .task-agent/memctx/<filename>.
+// With a filename argument it writes JSONL to disk:
+//
+//	/memctx foo       → .task-agent/memctx/foo.jsonl (自动补后缀)
+//	/memctx *         → .task-agent/memctx/<timestamp>.jsonl
+//	/memctx .         → CWD/<timestamp>.jsonl
+//	/memctx ..\x.jsonl → 上级目录的 x.jsonl
+//	/memctx D:\x.jsonl → 绝对路径直写
+//
+// 路径含控制字符或文件名为 <>:"|?* 时整个参数替换为时间戳名，写入默认目录。
+//	/memctx '|bad'    → .task-agent/memctx/<timestamp>.jsonl  （目录信息丢失）
+//	/memctx a?b.jsonl → .task-agent/memctx/<timestamp>.jsonl
+//	/memctx ../|a     → .task-agent/memctx/<timestamp>.jsonl  （../ 也丢失）
 func (m *model) handleMemctx(query string) {
 	msgs := m.runner.Messages()
 
@@ -412,13 +442,45 @@ func (m *model) handleMemctx(query string) {
 	arg = strings.TrimSpace(arg)
 
 	if arg != "" {
-		// Write to file
-		dir := memctxDefaultDir
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			m.content = append(m.content, fmt.Sprintf("\033[31mmemctx: mkdir %s: %v\033[0m", dir, err))
+		// "*" → quick export with generated name; also reject system-invalid paths
+		if arg == "*" || !isValidPath(arg) {
+			arg = fmt.Sprintf("memctx_%s.jsonl", time.Now().Format("2006-01-02-150405"))
+		} else {
+			// Default to .jsonl if no file extension
+			if filepath.Ext(arg) == "" {
+				arg += ".jsonl"
+			}
+		}
+
+		// Write to file — resolve path relative to CWD if arg starts
+		// with "." or ".." as a path component, otherwise relative to
+		// .task-agent/memctx/.
+		var baseDir string
+		first := arg
+		if idx := strings.IndexAny(arg, `/\`); idx >= 0 {
+			first = arg[:idx]
+		}
+		if first == "." || first == ".." {
+			cwd, err := os.Getwd()
+			if err != nil {
+				m.content = append(m.content, fmt.Sprintf("\033[31mmemctx: getwd: %v\033[0m", err))
+				return
+			}
+			baseDir = cwd
+		} else {
+			baseDir = memctxDefaultDir
+		}
+		path := filepath.Join(baseDir, arg)
+		// If the resolved path is an existing directory (e.g. "."
+		// resolves to CWD), generate a timestamp name inside it.
+		if stat, err := os.Stat(path); err == nil && stat.IsDir() {
+			path = filepath.Join(path, fmt.Sprintf("memctx_%s.jsonl", time.Now().Format("2006-01-02-150405")))
+		}
+		parent := filepath.Dir(path)
+		if err := os.MkdirAll(parent, 0700); err != nil {
+			m.content = append(m.content, fmt.Sprintf("\033[31mmemctx: mkdir %s: %v\033[0m", parent, err))
 			return
 		}
-		path := filepath.Join(dir, arg)
 		f, err := os.Create(path)
 		if err != nil {
 			m.content = append(m.content, fmt.Sprintf("\033[31mmemctx: create %s: %v\033[0m", path, err))
