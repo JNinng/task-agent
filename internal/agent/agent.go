@@ -8,6 +8,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"task-agent/internal/agent/background"
 	"task-agent/internal/agent/skill"
 	"task-agent/internal/agent/tasks"
 	"task-agent/internal/agent/tools"
@@ -82,6 +83,9 @@ func New() (*Agent, error) {
 		return nil, fmt.Errorf("task manager: %w", err)
 	}
 
+	// --- Background task manager ---
+	bgMgr := background.NewManager()
+
 	// Build system prompt with two-layer skill injection
 	var systemText strings.Builder
 	systemText.WriteString(fmt.Sprintf(
@@ -96,7 +100,12 @@ func New() (*Agent, error) {
 			"The task tool launches a subagent for complex multi-step work (research, code exploration, "+
 			"multi-file edits). Prefer task over doing exploration yourself — the subagent's intermediate "+
 			"steps won't pollute your context window. For simple single-step actions (one read, one bash "+
-			"command), use the direct tool instead.",
+			"command), use the direct tool instead.\n\n"+
+			"Background tasks:\n"+
+			"  - background_bash - run a shell command in the background and continue working\n"+
+			"  - check_background - check the status of background tasks\n"+
+			"Use background_bash for long-running commands (npm install, pytest, etc.). "+
+			"Results are automatically delivered to you when they complete.",
 		cwd,
 	))
 
@@ -129,7 +138,7 @@ func New() (*Agent, error) {
 
 	var compactTrigger func() (string, error)
 
-	ag.Runner = NewRunner(ag, compactCfg, func(fn func() (string, error)) {
+	ag.Runner = NewRunner(ag, compactCfg, bgMgr, func(fn func() (string, error)) {
 		compactTrigger = fn
 	})
 
@@ -145,6 +154,8 @@ func New() (*Agent, error) {
 		&tools.TaskUpdateTool{Mgr: taskMgr},
 		tools.NewSubagentTool(&client, anthropic.Model(modelID), cwd),
 		skill.NewLoadSkillTool(loader),
+		&tools.BackgroundBashTool{Mgr: bgMgr},
+		&tools.CheckBackgroundTool{Mgr: bgMgr},
 		tools.NewCompactTool(func() (string, error) {
 			if compactTrigger == nil {
 				return "", fmt.Errorf("compact not initialized")

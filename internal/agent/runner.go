@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"task-agent/internal/agent/background"
 	"task-agent/internal/agent/tools"
 )
 
@@ -15,11 +17,12 @@ type Runner struct {
 	messages        []anthropic.BetaMessageParam
 	roundsSinceTodo int
 	compactCfg      CompactionConfig
-	compacted       bool // set when autoCompact replaces messages; skips tool_result appending
+	compacted       bool   // set when autoCompact replaces messages; skips tool_result appending
+	bgMgr           *background.Manager // tracks background tasks; nil if not wired yet
 }
 
-func NewRunner(ag *Agent, cfg CompactionConfig, setCompact func(func() (string, error))) *Runner {
-	r := &Runner{agent: ag, compactCfg: cfg}
+func NewRunner(ag *Agent, cfg CompactionConfig, bgMgr *background.Manager, setCompact func(func() (string, error))) *Runner {
+	r := &Runner{agent: ag, compactCfg: cfg, bgMgr: bgMgr}
 	setCompact(r.compact)
 	return r
 }
@@ -63,6 +66,12 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 	for {
 		// Layer 1: micro_compact — replace old tool_results with placeholders
 		microCompact(r.messages, r.compactCfg.MicroKeepRecent)
+
+		// Layer 1b: inject completed background task notifications before the
+		// next LLM call so the model can react to results.
+		if r.bgMgr != nil {
+			r.injectBackgroundNotifications(ch)
+		}
 
 		resp, err := r.agent.client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
 			Model:     r.agent.model,
@@ -250,4 +259,36 @@ func hasTaskBlock(blocks []tools.ToolUseBlock) bool {
 		}
 	}
 	return false
+}
+
+// injectBackgroundNotifications drains the background manager's notification
+// queue and injects completed task results as a user message before the next
+// LLM call. Each notification becomes a <background-result> block so the
+// model can clearly distinguish them from the main conversation.
+func (r *Runner) injectBackgroundNotifications(ch chan<- any) {
+	notifs := r.bgMgr.DrainNotifications()
+	if len(notifs) == 0 {
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("<background-results>\n")
+	for _, n := range notifs {
+		b.WriteString(fmt.Sprintf("  <result task_id=%q status=%q>%s</result>\n",
+			n.TaskID, string(n.Status), n.Summary))
+
+		if ch != nil {
+			ch <- EventBackgroundResult{
+				TaskID:  n.TaskID,
+				Status:  string(n.Status),
+				Summary: n.Summary,
+			}
+		}
+	}
+	b.WriteString("</background-results>")
+
+	r.messages = append(r.messages, anthropic.NewBetaUserMessage(
+		anthropic.BetaContentBlockParamUnion{
+			OfText: &anthropic.BetaTextBlockParam{Text: b.String()},
+		}))
 }

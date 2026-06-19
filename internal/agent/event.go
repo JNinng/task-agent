@@ -11,6 +11,14 @@ type (
 
 	EventTodoUpdate struct{ Content string }
 
+	// EventBackgroundResult is emitted when background tasks complete and
+	// their results are injected into the LLM message history.
+	EventBackgroundResult struct {
+		TaskID  string
+		Status  string // completed | failed | timeout
+		Summary string
+	}
+
 	EventError struct{ Err error }
 	EventDone  struct{}
 )

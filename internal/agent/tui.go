@@ -173,6 +173,22 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
+	case EventBackgroundResult:
+		var icon string
+		switch msg.Status {
+		case "completed":
+			icon = "\033[32m[bg done]\033[0m"
+		case "failed":
+			icon = "\033[31m[bg failed]\033[0m"
+		case "timeout":
+			icon = "\033[33m[bg timeout]\033[0m"
+		default:
+			icon = "\033[36m[bg]\033[0m"
+		}
+		m.content = append(m.content, fmt.Sprintf("%s %s: %s", icon, msg.TaskID, msg.Summary))
+		m.refreshViewport()
+		return m, watchRunner(m.runnerCh)
+
 	case EventTodoUpdate:
 		m.content = append(m.content, "\033[36m"+msg.Content+"\033[0m")
 		m.refreshViewport()
