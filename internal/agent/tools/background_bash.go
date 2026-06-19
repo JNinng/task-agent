@@ -65,7 +65,12 @@ func (t *BackgroundBashTool) Execute(ctx context.Context, input json.RawMessage)
 		}
 	}
 
-	task := t.Mgr.Start(ctx, args.Command, timeout)
+	// Use context.Background() so the background goroutine is not tied to
+	// the tool dispatch lifecycle. The registry uses errgroup.WithContext,
+	// which cancels gctx when dispatch completes — that would kill the
+	// subprocess immediately. The background manager's own timeout (set
+	// via the timeout parameter or DefaultTimeout) provides the deadline.
+	task := t.Mgr.Start(context.Background(), args.Command, timeout)
 
 	result := fmt.Sprintf(
 		"Background task %s started.\nCommand: %s\nStatus: running\nUse check_background to poll, or I'll notify you when it completes.",
