@@ -39,6 +39,11 @@ type model struct {
 	runner   *agent.Runner
 	runnerCh <-chan any // 当前活跃的事件 channel
 
+	// 控制 Runner.Run 的 goroutine 生命周期。
+	// ctx 的新子 context 在每次 submit 时创建，退出时取消。
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	// UI 组件
 	textarea     textarea.Model
 	viewport     viewport.Model
@@ -47,7 +52,6 @@ type model struct {
 
 	senderStyle lipgloss.Style
 	thinking    bool
-	err         error
 
 	// 终端尺寸（缓存用于动态布局）。
 	termWidth  int
@@ -79,8 +83,12 @@ func NewTUI(runner *agent.Runner, opts ...tea.ProgramOption) *tea.Program {
 	ac := NewAutocomplete(agentCommands, '/')
 	ac.SetListWidth(80)
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return tea.NewProgram(&model{
 		runner:       runner,
+		ctx:          ctx,
+		cancel:       cancel,
 		textarea:     ta,
 		viewport:     vp,
 		autocomplete: ac,
@@ -109,6 +117,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
+		m.syncContent()
 		return m, cmd
 
 	case tea.KeyPressMsg:
@@ -122,7 +131,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case thinkTickMsg:
 		if m.thinking {
 			m.refreshViewport()
-			return m, thinkTick()
+		return m, thinkTick()
 		}
 		return m, nil
 
@@ -132,78 +141,71 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, watchRunner(m.runnerCh)
 
 	case agent.EventText:
-		m.content = append(m.content, msg.Content)
-		m.refreshViewport()
-		return m, watchRunner(m.runnerCh)
+		return m.emitEvent(msg.Content)
 
 	case agent.EventToolCalls:
+		var lines []string
 		for _, tc := range msg.Tools {
-			preview := toolPreview(tc)
-			m.content = append(m.content, fmt.Sprintf("\033[33m> %s(%s)\033[0m", tc.Name, preview))
+			lines = append(lines, styleYellow.Render(fmt.Sprintf("> %s(%s)", tc.Name, toolPreview(tc))))
 		}
-		m.refreshViewport()
-		return m, watchRunner(m.runnerCh)
+		return m.emitEvent(lines...)
 
 	case tools.SubagentProgress:
-		status := fmt.Sprintf("\033[33m  task: %s\033[0m", msg.Description)
+		status := styleYellow.Render(fmt.Sprintf("  task: %s", msg.Description))
 		if msg.Turn > 0 {
 			// In-progress update from subagent loop: replace previous status line.
 			if len(m.content) > 0 && strings.HasPrefix(m.content[len(m.content)-1], "\033[33m  task:") {
-				m.content[len(m.content)-1] = fmt.Sprintf("\033[33m  task: %s (%d/%d)\033[0m", msg.Description, msg.Turn, msg.MaxTurns)
+				m.content[len(m.content)-1] = styleYellow.Render(fmt.Sprintf("  task: %s (%d/%d)", msg.Description, msg.Turn, msg.MaxTurns))
 			} else {
-				m.content = append(m.content, fmt.Sprintf("\033[33m  task: %s (%d/%d)\033[0m", msg.Description, msg.Turn, msg.MaxTurns))
+				m.appendContent(styleYellow.Render(fmt.Sprintf("  task: %s (%d/%d)", msg.Description, msg.Turn, msg.MaxTurns)))
 			}
 		} else {
-			m.content = append(m.content, status)
+			m.appendContent(status)
 		}
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
 	case agent.EventToolResults:
+		var lines []string
 		for _, tr := range msg.Results {
 			out := tr.Content
 			if tr.Name == "todo" {
-				continue // rendered by EventTodoUpdate
+				continue
 			}
 			if len(out) > 200 {
-				m.content = append(m.content, out[:200], fmt.Sprintf("... (%d more bytes)", len(out)-200))
+				lines = append(lines, out[:200], fmt.Sprintf("... (%d more bytes)", len(out)-200))
 			} else {
-				m.content = append(m.content, out)
+				lines = append(lines, out)
 			}
 		}
-		m.refreshViewport()
-		return m, watchRunner(m.runnerCh)
+		return m.emitEvent(lines...)
 
 	case agent.EventBackgroundResult:
 		var icon string
 		switch msg.Status {
 		case "completed":
-			icon = "\033[32m[bg done]\033[0m"
+			icon = styleGreen.Render("[bg done]")
 		case "failed":
-			icon = "\033[31m[bg failed]\033[0m"
+			icon = styleRed.Render("[bg failed]")
 		case "timeout":
-			icon = "\033[33m[bg timeout]\033[0m"
+			icon = styleYellow.Render("[bg timeout]")
 		default:
-			icon = "\033[36m[bg]\033[0m"
+			icon = styleCyan.Render("[bg]")
 		}
-		m.content = append(m.content, fmt.Sprintf("%s %s: %s", icon, msg.TaskID, msg.Summary))
-		m.refreshViewport()
-		return m, watchRunner(m.runnerCh)
+		return m.emitEvent(fmt.Sprintf("%s %s: %s", icon, msg.TaskID, msg.Summary))
 
 	case agent.EventTodoUpdate:
-		m.content = append(m.content, "\033[36m"+msg.Content+"\033[0m")
-		m.refreshViewport()
-		return m, watchRunner(m.runnerCh)
+		return m.emitEvent(styleCyan.Render(msg.Content))
 
 	case agent.EventError:
-		m.content = append(m.content, fmt.Sprintf("\033[31mError: %v\033[0m", msg.Err))
+		m.appendContent(styleRed.Render(fmt.Sprintf("Error: %v", msg.Err)))
 		m.thinking = false
 		m.refreshViewport()
 		return m, nil
 
 	case agent.EventDone:
 		m.thinking = false
-		m.content = append(m.content, "")
+		m.appendContent("")
 		m.refreshViewport()
 		return m, nil
 	}
@@ -254,10 +256,12 @@ func (m *model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.submit()
 	case "ctrl+c", "esc":
+		m.cancel()
 		return m, tea.Quit
 	case "up", "down", "pgup", "pgdown", "home", "end":
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
+		m.syncContent()
 		return m, cmd
 	default:
 		var cmd tea.Cmd
@@ -281,20 +285,20 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 	}
 
 	if query == "/todo" {
-		m.content = append(m.content, m.senderStyle.Render(">>> ")+query)
+		m.appendContent(m.senderStyle.Render(">>> ")+query)
 		m.textarea.Reset()
 		m.autocomplete.Reset()
 		if t, ok := m.runner.Tool("todo").(*tools.TodoWriteTool); ok {
-			m.content = append(m.content, "\033[36m"+t.Render()+"\033[0m")
+			m.appendContent(styleCyan.Render(t.Render()))
 		} else {
-			m.content = append(m.content, "\033[31mTodo tool not available\033[0m")
+			m.appendContent(styleRed.Render("Todo tool not available"))
 		}
 		m.refreshViewport()
 		return m, nil
 	}
 
 	if query == "/memctx" || strings.HasPrefix(query, "/memctx ") {
-		m.content = append(m.content, m.senderStyle.Render(">>> ")+query)
+		m.appendContent(m.senderStyle.Render(">>> ")+query)
 		m.textarea.Reset()
 		m.autocomplete.Reset()
 		m.handleMemctx(query)
@@ -302,15 +306,25 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.content = append(m.content, m.senderStyle.Render(">>> ")+query)
+	m.appendContent(m.senderStyle.Render(">>> ")+query)
 	m.textarea.Reset()
 	m.autocomplete.Reset()
 	m.thinking = true
 	m.refreshViewport()
 
-	ch := m.runner.Run(context.Background(), query)
-	m.runnerCh = ch
-	return m, tea.Batch(watchRunner(ch), thinkTick(), textarea.Blink)
+		// 取消前一次运行（若有）防止 goroutine 泄漏。
+		m.cancel()
+		// 排空旧 channel 防止前一次 watchRunner 残留导致事件交错。
+		if m.runnerCh != nil {
+			go func(old <-chan any) {
+				for range old {
+				}
+			}(m.runnerCh)
+		}
+		m.ctx, m.cancel = context.WithCancel(context.Background())
+		ch := m.runner.Run(m.ctx, query)
+		m.runnerCh = ch
+		return m, tea.Batch(watchRunner(ch), thinkTick(), textarea.Blink)
 }
 
 // watchRunner 从 Runner 事件 channel 读取下一个事件并转换为 Bubble Tea 消息。
@@ -318,7 +332,7 @@ func watchRunner(ch <-chan any) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-ch
 		if !ok {
-			return nil
+			return agent.EventDone{}
 		}
 		return event
 	}
@@ -465,7 +479,7 @@ func (m *model) handleMemctx(query string) {
 		if first == "." || first == ".." {
 			cwd, err := os.Getwd()
 			if err != nil {
-				m.content = append(m.content, fmt.Sprintf("\033[31mmemctx: getwd: %v\033[0m", err))
+				m.appendContent(styleRed.Render(fmt.Sprintf("memctx: getwd: %v", err)))
 				return
 			}
 			baseDir = cwd
@@ -480,12 +494,12 @@ func (m *model) handleMemctx(query string) {
 		}
 		parent := filepath.Dir(path)
 		if err := os.MkdirAll(parent, 0700); err != nil {
-			m.content = append(m.content, fmt.Sprintf("\033[31mmemctx: mkdir %s: %v\033[0m", parent, err))
+			m.appendContent(styleRed.Render(fmt.Sprintf("memctx: mkdir %s: %v", parent, err)))
 			return
 		}
 		f, err := os.Create(path)
 		if err != nil {
-			m.content = append(m.content, fmt.Sprintf("\033[31mmemctx: create %s: %v\033[0m", path, err))
+			m.appendContent(styleRed.Render(fmt.Sprintf("memctx: create %s: %v", path, err)))
 			return
 		}
 		defer f.Close()
@@ -494,26 +508,26 @@ func (m *model) handleMemctx(query string) {
 		count := 0
 		for _, msg := range msgs {
 			if err := enc.Encode(msg); err != nil {
-				m.content = append(m.content, fmt.Sprintf("\033[31mmemctx: encode msg %d: %v\033[0m", count, err))
+				m.appendContent(styleRed.Render(fmt.Sprintf("memctx: encode msg %d: %v", count, err)))
 				return
 			}
 			count++
 		}
-		m.content = append(m.content, fmt.Sprintf("memctx: %d messages → \033[32m%s\033[0m", count, path))
+		m.appendContent(styleGreen.Render(fmt.Sprintf("memctx: %d messages → %s", count, path)))
 		return
 	}
 
 	// Print to terminal (one JSON object per line for readability)
 	if len(msgs) == 0 {
-		m.content = append(m.content, "memctx: (no messages)")
+		m.appendContent("memctx: (no messages)")
 		return
 	}
 
-	m.content = append(m.content, fmt.Sprintf("memctx: %d messages", len(msgs)))
+	m.appendContent(fmt.Sprintf("memctx: %d messages", len(msgs)))
 	for i, msg := range msgs {
 		data, err := json.MarshalIndent(msg, "", "  ")
 		if err != nil {
-			m.content = append(m.content, fmt.Sprintf("\033[31m  [%d] marshal error: %v\033[0m", i, err))
+			m.appendContent(styleRed.Render(fmt.Sprintf("  [%d] marshal error: %v", i, err)))
 			continue
 		}
 		// Truncate per-message output to avoid flooding the terminal
@@ -522,16 +536,55 @@ func (m *model) handleMemctx(query string) {
 		if len(s) > maxPerMsg {
 			s = s[:maxPerMsg] + fmt.Sprintf("\n  ... (%d more bytes)", len(s)-maxPerMsg)
 		}
-		m.content = append(m.content, fmt.Sprintf("  [%d] %s", i, s))
+		m.appendContent(fmt.Sprintf("  [%d] %s", i, s))
 	}
 }
 
-// refreshViewport 根据 content 刷新 viewport 的显示内容。
-func (m *model) refreshViewport() {
+// 命名样式常量，替代散落在代码中的 ANSI 转义码。
+var (
+	styleYellow = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	styleGreen  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	styleRed    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	styleCyan   = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	styleDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+)
+
+// maxContentLines 限制 m.content 最大条目数，防止无限增长。
+const maxContentLines = 2000
+
+// appendContent 追加内容行到 viewport，超出上限时裁剪最旧的行。
+func (m *model) appendContent(lines ...string) {
+	m.content = append(m.content, lines...)
+	if len(m.content) > maxContentLines {
+		m.content = m.content[len(m.content)-maxContentLines:]
+	}
+}
+
+// emitEvent 是多个事件 handler 的公共模式：追加内容 → 刷新 viewport → 监听下一个事件。
+func (m *model) emitEvent(lines ...string) (tea.Model, tea.Cmd) {
+	m.appendContent(lines...)
+	m.refreshViewport()
+	return m, watchRunner(m.runnerCh)
+}
+
+// syncContent 将 m.content 渲染到 viewport 中，但不移动滚动位置。
+// 适用于鼠标滚动等用户主动导航的场景。
+func (m *model) syncContent() {
 	s := strings.Join(m.content, "\n")
 	if m.thinking {
-		s += "\n  \033[2m...\033[0m"
+		s += "\n" + styleDim.Render("  ...")
 	}
 	m.viewport.SetContent(lipgloss.NewStyle().Width(m.viewport.Width()).Render(s))
+}
+
+// scrollToBottom 将 viewport 滚动到底部显示最新内容。
+func (m *model) scrollToBottom() {
 	m.viewport.GotoBottom()
+}
+
+// refreshViewport 根据 content 刷新 viewport 的显示内容并滚动到底部。
+// 是在新事件到达时更新 UI 的便捷方法；如需保留用户滚动位置请用 syncContent。
+func (m *model) refreshViewport() {
+	m.syncContent()
+	m.scrollToBottom()
 }

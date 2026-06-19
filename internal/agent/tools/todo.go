@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
@@ -19,6 +20,7 @@ type TodoItem struct {
 // TodoWriteTool tracks todo items for multi-step task planning.
 // It is stateful — items persist across tool calls within a session.
 type TodoWriteTool struct {
+	mu    sync.RWMutex
 	Items []TodoItem
 }
 
@@ -59,6 +61,9 @@ func (t *TodoWriteTool) Execute(ctx context.Context, input json.RawMessage) ([]a
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("todo: %w", err)
 	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	// Build lookup of existing items.
 	existing := make(map[string]TodoItem, len(t.Items))
@@ -113,12 +118,14 @@ func (t *TodoWriteTool) Execute(ctx context.Context, input json.RawMessage) ([]a
 
 	t.Items = merged
 	return []anthropic.BetaToolResultBlockParamContentUnion{
-		{OfText: &anthropic.BetaTextBlockParam{Text: t.Render()}},
+		{OfText: &anthropic.BetaTextBlockParam{Text: t.renderUnsafe()}},
 	}, nil
 }
 
 // HasIncomplete returns true if any item is pending or in_progress.
 func (t *TodoWriteTool) HasIncomplete() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	for _, item := range t.Items {
 		if item.Status == "pending" || item.Status == "in_progress" {
 			return true
@@ -129,6 +136,13 @@ func (t *TodoWriteTool) HasIncomplete() bool {
 
 // Render returns the formatted todo list string.
 func (t *TodoWriteTool) Render() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.renderUnsafe()
+}
+
+// renderUnsafe 是 Render 的内部实现，假设调用方已持有 t.mu。
+func (t *TodoWriteTool) renderUnsafe() string {
 	if len(t.Items) == 0 {
 		return "No todos."
 	}

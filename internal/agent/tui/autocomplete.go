@@ -84,6 +84,26 @@ func (a *Autocomplete) Reset() {
 	a.scrollOff = 0
 }
 
+// measureColumnWidths 计算可见建议的代码列和描述列宽度。
+// 提取为公共方法以避免 Height() 和 View() 中的代码重复。
+func (a *Autocomplete) measureColumnWidths(start, end int) (codeWidth, descWidth int) {
+	listWidth := a.listWidth
+	if listWidth <= 0 {
+		listWidth = 30
+	}
+	for _, s := range a.suggestions[start:end] {
+		if w := lipgloss.Width(s.Text); w > codeWidth {
+			codeWidth = w
+		}
+	}
+	codeWidth += 2
+	descWidth = listWidth - codeWidth
+	if descWidth < 1 {
+		descWidth = 1
+	}
+	return codeWidth, descWidth
+}
+
 // Height 返回建议面板占用的行数，隐藏时返回 0。
 // 高度已考虑描述换行后的实际行数，确保终端布局准确。
 func (a *Autocomplete) Height() int {
@@ -91,26 +111,9 @@ func (a *Autocomplete) Height() int {
 		return 0
 	}
 
-	listWidth := a.listWidth
-	if listWidth <= 0 {
-		listWidth = 30
-	}
-
 	visible := min(len(a.suggestions), a.maxVisible)
 	end := min(a.scrollOff+visible, len(a.suggestions))
-
-	// 测量命令列宽度（与 View 中的逻辑一致）。
-	codeWidth := 0
-	for _, s := range a.suggestions[a.scrollOff:end] {
-		if w := lipgloss.Width(s.Text); w > codeWidth {
-			codeWidth = w
-		}
-	}
-	codeWidth += 2
-	descWidth := listWidth - codeWidth
-	if descWidth < 1 {
-		descWidth = 1
-	}
+	_, descWidth := a.measureColumnWidths(a.scrollOff, end)
 
 	// 累计行数：1 行顶部分隔线 + 每条建议的换行行数。
 	lines := 1
@@ -259,15 +262,7 @@ func (a *Autocomplete) View() string {
 	end := min(a.scrollOff+visible, total)
 
 	// ── 列宽计算 ─────────────────────────────────────────────────
-	// 测量可见范围内最宽的命令文本。
-	codeWidth := 0
-	for _, s := range a.suggestions[a.scrollOff:end] {
-		if w := lipgloss.Width(s.Text); w > codeWidth {
-			codeWidth = w
-		}
-	}
-	codeWidth += 2 // 内边距
-	descWidth := listWidth - codeWidth
+	codeWidth, descWidth := a.measureColumnWidths(a.scrollOff, end)
 	if descWidth < 1 {
 		descWidth = 1 // 安全兜底：防止描述列宽度坍缩为零
 	}
