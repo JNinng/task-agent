@@ -18,7 +18,7 @@ import (
 	"task-agent/internal/agent/tools"
 )
 
-const memctxDefaultDir = ".task-agent/memctx"
+var memctxDefaultDir = filepath.Join(DirAgent, "memctx")
 
 // thinkTickMsg 思考状态下的定时刷新消息。
 type thinkTickMsg struct{}

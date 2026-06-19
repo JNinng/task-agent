@@ -43,7 +43,7 @@ func TestCompactSetsCompactedFlag(t *testing.T) {
 			option.WithAPIKey("test-key"),
 			option.WithBaseURL(srv.URL),
 		)),
-		model:  "claude-sonnet-4-6",
+		model: "claude-sonnet-4-6",
 	}
 
 	cfg := DefaultCompactionConfig()
@@ -99,7 +99,7 @@ func TestCompactDoesNotSetFlagOnFailure(t *testing.T) {
 			option.WithAPIKey("test-key"),
 			option.WithBaseURL(srv.URL),
 		)),
-		model:  "claude-sonnet-4-6",
+		model: "claude-sonnet-4-6",
 	}
 
 	cfg := DefaultCompactionConfig()
@@ -145,7 +145,7 @@ func TestCompactSavesTranscript(t *testing.T) {
 			option.WithAPIKey("test-key"),
 			option.WithBaseURL(srv.URL),
 		)),
-		model:  "claude-sonnet-4-6",
+		model: "claude-sonnet-4-6",
 	}
 
 	transcriptDir := filepath.Join(t.TempDir(), "transcripts")

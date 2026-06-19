@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -147,7 +148,7 @@ func TestDefaultCompactionConfig(t *testing.T) {
 	if cfg.MicroKeepRecent != 3 {
 		t.Errorf("MicroKeepRecent = %d, want 3", cfg.MicroKeepRecent)
 	}
-	if cfg.TranscriptDir != ".task-agent/transcripts" {
-		t.Errorf("TranscriptDir = %q, want .task-agent/transcripts", cfg.TranscriptDir)
+	if cfg.TranscriptDir != filepath.Join(DirAgent, "transcripts") {
+		t.Errorf("TranscriptDir = %q, want %q", cfg.TranscriptDir, filepath.Join(DirAgent, "transcripts"))
 	}
 }

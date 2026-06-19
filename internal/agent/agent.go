@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -46,12 +45,12 @@ func envOrSettings(envKey, settingsKey string, settingsEnv map[string]string) st
 }
 
 func New() (*Agent, error) {
-	settingsEnv := loadSettings(filepath.Join(os.Getenv("USERPROFILE"), ".claude", "settings.json"))
+	settingsEnv := loadSettings(ClaudeSettingsPath())
 
 	modelID := envOrSettings("MODEL_ID", "ANTHROPIC_MODEL", settingsEnv)
 	if modelID == "" {
 		return nil, fmt.Errorf("model ID not set: set ANTHROPIC_MODEL in %s or MODEL_ID env var",
-			filepath.Join(os.Getenv("USERPROFILE"), ".claude", "settings.json"))
+			ClaudeSettingsPath())
 	}
 
 	var opts []option.RequestOption
@@ -72,20 +71,13 @@ func New() (*Agent, error) {
 	cwd, _ := os.Getwd()
 
 	// --- Skill loading ---
-	homeDir := os.Getenv("USERPROFILE")
-	if homeDir == "" {
-		homeDir = os.Getenv("HOME")
-	}
-	globalSkillsDir := filepath.Join(homeDir, ".task-agent", "skills")
-	projectSkillsDir := filepath.Join(cwd, ".task-agent", "skills")
-
-	loader, err := skill.NewLoader(globalSkillsDir, projectSkillsDir)
+	loader, err := skill.NewLoader(GlobalSkillsDir(), ProjectSkillsDir(cwd))
 	if err != nil {
 		return nil, fmt.Errorf("skill loader: %w", err)
 	}
 
 	// --- Task graph persistence ---
-	taskMgr, err := tasks.NewManager(filepath.Join(homeDir, ".task-agent"), tasks.ResolveTaskListID(""))
+	taskMgr, err := tasks.NewManager(DataDir(), tasks.ResolveTaskListID(""))
 	if err != nil {
 		return nil, fmt.Errorf("task manager: %w", err)
 	}
@@ -110,9 +102,10 @@ func New() (*Agent, error) {
 
 	// Layer 1: skill name + description list (~100 tokens/skill)
 	if desc := loader.Descriptions(); desc != "" {
-		systemText.WriteString("\n\nSkills loaded from ~/.task-agent/skills/ and " +
-			"<project>/.task-agent/skills/. The list below is complete — use " +
-			"load_skill to expand full instructions. Do NOT search the filesystem for skills.\n")
+		systemText.WriteString(fmt.Sprintf("\n\nSkills loaded from ~/%s/skills/ and "+
+			"<project>/%s/skills/. The list below is complete — use "+
+			"load_skill to expand full instructions. Do NOT search the filesystem for skills.\n",
+			DirAgent, DirAgent))
 		systemText.WriteString(desc)
 	}
 

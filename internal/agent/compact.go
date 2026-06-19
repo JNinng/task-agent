@@ -24,7 +24,7 @@ func DefaultCompactionConfig() CompactionConfig {
 	return CompactionConfig{
 		AutoThreshold:   50_000,
 		MicroKeepRecent: 3,
-		TranscriptDir:   ".task-agent/transcripts",
+		TranscriptDir:   filepath.Join(DirAgent, "transcripts"),
 	}
 }
 
