@@ -6,10 +6,11 @@
 // next LLM call.
 //
 // Task life cycle: running -> completed | failed | timeout
-//   running     - goroutine is executing
-//   completed   - process exited successfully with output
-//   failed      - process exited with non-zero status
-//   timeout     - process exceeded the configured deadline
+//
+//	running     - goroutine is executing
+//	completed   - process exited successfully with output
+//	failed      - process exited with non-zero status
+//	timeout     - process exceeded the configured deadline
 package background
 
 import "time"
@@ -32,8 +33,8 @@ type Task struct {
 	StartedAt time.Time `json:"startedAt"`
 	DoneAt    time.Time `json:"doneAt,omitempty"`
 	PID       int       `json:"pid,omitempty"`
-	Result    string    `json:"result,omitempty"`    // stdout + stderr (truncated to 50000)
-	Error     string    `json:"error,omitempty"`     // non-empty when status is failed/timeout
+	Result    string    `json:"result,omitempty"` // stdout + stderr (truncated to 50000)
+	Error     string    `json:"error,omitempty"`  // non-empty when status is failed/timeout
 }
 
 // Notification is a short summary pushed to the notification queue when a

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"task-agent/internal/agent/tui"
 
 	tea "charm.land/bubbletea/v2"
 	"go.uber.org/zap"
@@ -20,7 +21,7 @@ func Run(ctx context.Context) error {
 	}
 
 	runner := ag.Runner
-	p := agent.NewTUI(runner, tea.WithContext(ctx))
+	p := tui.NewTUI(runner, tea.WithContext(ctx))
 
 	if _, err := p.Run(); err != nil {
 		logger.Error("Agent TUI error", zap.Error(err))
