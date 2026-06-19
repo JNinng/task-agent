@@ -45,7 +45,7 @@ func (t *BackgroundBashTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 	}
 }
 
-func (t *BackgroundBashTool) Execute(ctx context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
+func (t *BackgroundBashTool) Execute(_ context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
 	var args struct {
 		Command string  `json:"command"`
 		Timeout float64 `json:"timeout,omitempty"`
@@ -65,11 +65,8 @@ func (t *BackgroundBashTool) Execute(ctx context.Context, input json.RawMessage)
 		}
 	}
 
-	// Use context.Background() so the background goroutine is not tied to
-	// the tool dispatch lifecycle. The registry uses errgroup.WithContext,
-	// which cancels gctx when dispatch completes — that would kill the
-	// subprocess immediately. The background manager's own timeout (set
-	// via the timeout parameter or DefaultTimeout) provides the deadline.
+	// Use context.Background() so the background process is not killed
+	// when the tool execution context is cancelled after the tool returns.
 	task := t.Mgr.Start(context.Background(), args.Command, timeout)
 
 	result := fmt.Sprintf(
