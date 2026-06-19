@@ -1,4 +1,4 @@
-package agent
+package tui
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"task-agent/internal/agent"
 	"time"
 
 	"charm.land/bubbles/v2/cursor"
@@ -18,7 +19,7 @@ import (
 	"task-agent/internal/agent/tools"
 )
 
-var memctxDefaultDir = filepath.Join(DirAgent, "memctx")
+var memctxDefaultDir = filepath.Join(agent.DirAgent, "memctx")
 
 // thinkTickMsg 思考状态下的定时刷新消息。
 type thinkTickMsg struct{}
@@ -35,7 +36,7 @@ var agentCommands = map[string]string{
 // model 是 Bubble Tea 的核心模型，持有 UI 组件状态和展示内容。
 // agent 循环逻辑由 Runner 管理，model 仅负责展示。
 type model struct {
-	runner   *Runner
+	runner   *agent.Runner
 	runnerCh <-chan any // 当前活跃的事件 channel
 
 	// UI 组件
@@ -54,7 +55,7 @@ type model struct {
 }
 
 // NewTUI 创建并配置 Bubble Tea 程序实例。
-func NewTUI(runner *Runner, opts ...tea.ProgramOption) *tea.Program {
+func NewTUI(runner *agent.Runner, opts ...tea.ProgramOption) *tea.Program {
 	ta := textarea.New()
 	ta.Placeholder = "Ask something..."
 	ta.SetVirtualCursor(false)
@@ -125,17 +126,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case EventThinking:
+	case agent.EventThinking:
 		m.thinking = true
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
-	case EventText:
+	case agent.EventText:
 		m.content = append(m.content, msg.Content)
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
-	case EventToolCalls:
+	case agent.EventToolCalls:
 		for _, tc := range msg.Tools {
 			preview := toolPreview(tc)
 			m.content = append(m.content, fmt.Sprintf("\033[33m> %s(%s)\033[0m", tc.Name, preview))
@@ -158,7 +159,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
-	case EventToolResults:
+	case agent.EventToolResults:
 		for _, tr := range msg.Results {
 			out := tr.Content
 			if tr.Name == "todo" {
@@ -173,7 +174,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
-	case EventBackgroundResult:
+	case agent.EventBackgroundResult:
 		var icon string
 		switch msg.Status {
 		case "completed":
@@ -189,18 +190,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
-	case EventTodoUpdate:
+	case agent.EventTodoUpdate:
 		m.content = append(m.content, "\033[36m"+msg.Content+"\033[0m")
 		m.refreshViewport()
 		return m, watchRunner(m.runnerCh)
 
-	case EventError:
+	case agent.EventError:
 		m.content = append(m.content, fmt.Sprintf("\033[31mError: %v\033[0m", msg.Err))
 		m.thinking = false
 		m.refreshViewport()
 		return m, nil
 
-	case EventDone:
+	case agent.EventDone:
 		m.thinking = false
 		m.content = append(m.content, "")
 		m.refreshViewport()
@@ -283,7 +284,7 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 		m.content = append(m.content, m.senderStyle.Render(">>> ")+query)
 		m.textarea.Reset()
 		m.autocomplete.Reset()
-		if t, ok := m.runner.agent.registry.Tool("todo").(*tools.TodoWriteTool); ok {
+		if t, ok := m.runner.Tool("todo").(*tools.TodoWriteTool); ok {
 			m.content = append(m.content, "\033[36m"+t.Render()+"\033[0m")
 		} else {
 			m.content = append(m.content, "\033[31mTodo tool not available\033[0m")
@@ -431,6 +432,7 @@ func isValidPath(p string) bool {
 //	/memctx D:\x.jsonl → 绝对路径直写
 //
 // 路径含控制字符或文件名为 <>:"|?* 时整个参数替换为时间戳名，写入默认目录。
+//
 //	/memctx '|bad'    → .task-agent/memctx/<timestamp>.jsonl  （目录信息丢失）
 //	/memctx a?b.jsonl → .task-agent/memctx/<timestamp>.jsonl
 //	/memctx ../|a     → .task-agent/memctx/<timestamp>.jsonl  （../ 也丢失）

@@ -17,7 +17,7 @@ type Runner struct {
 	messages        []anthropic.BetaMessageParam
 	roundsSinceTodo int
 	compactCfg      CompactionConfig
-	compacted       bool   // set when autoCompact replaces messages; skips tool_result appending
+	compacted       bool                // set when autoCompact replaces messages; skips tool_result appending
 	bgMgr           *background.Manager // tracks background tasks; nil if not wired yet
 }
 
@@ -25,6 +25,14 @@ func NewRunner(ag *Agent, cfg CompactionConfig, bgMgr *background.Manager, setCo
 	r := &Runner{agent: ag, compactCfg: cfg, bgMgr: bgMgr}
 	setCompact(r.compact)
 	return r
+}
+
+// Tool returns the tool registered under the given name, or nil.
+func (r *Runner) Tool(name string) tools.Tool {
+	if r.agent == nil || r.agent.registry == nil {
+		return nil
+	}
+	return r.agent.registry.Tool(name)
 }
 
 // Messages returns a copy of the current message history for inspection.
