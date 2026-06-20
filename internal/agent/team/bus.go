@@ -12,7 +12,7 @@ import (
 // Each teammate (and the lead) has a {name}.jsonl file under inbox/.
 // Messages are appended by Send and atomically drained by ReadInbox.
 type MessageBus struct {
-	dir string // .team/inbox/
+	dir string // team/inbox/
 	mu  sync.Mutex
 }
 

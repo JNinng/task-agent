@@ -69,8 +69,8 @@ func MemctxDir(cwd string) string {
 }
 
 // TeamDir returns the global agent team directory
-// (~/.task-agent/.team) used for team roster, inboxes, and
+// (~/.task-agent/team) used for team roster, inboxes, and
 // teammate persistence.
 func TeamDir(dataDir string) string {
-	return filepath.Join(dataDir, ".team")
+	return filepath.Join(dataDir, "team")
 }

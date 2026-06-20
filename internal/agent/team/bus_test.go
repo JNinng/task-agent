@@ -8,7 +8,7 @@ import (
 )
 
 func TestMessageBusSendAndRead(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), ".team")
+	dir := filepath.Join(t.TempDir(), "team")
 	bus, err := NewMessageBus(dir)
 	if err != nil {
 		t.Fatalf("NewMessageBus: %v", err)
@@ -50,7 +50,7 @@ func TestMessageBusSendAndRead(t *testing.T) {
 }
 
 func TestMessageBusMultipleMessages(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), ".team")
+	dir := filepath.Join(t.TempDir(), "team")
 	bus, err := NewMessageBus(dir)
 	if err != nil {
 		t.Fatalf("NewMessageBus: %v", err)
@@ -77,7 +77,7 @@ func TestMessageBusMultipleMessages(t *testing.T) {
 }
 
 func TestMessageBusEmptyInbox(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), ".team")
+	dir := filepath.Join(t.TempDir(), "team")
 	bus, err := NewMessageBus(dir)
 	if err != nil {
 		t.Fatalf("NewMessageBus: %v", err)
@@ -93,7 +93,7 @@ func TestMessageBusEmptyInbox(t *testing.T) {
 }
 
 func TestMessageBusSeparateInboxes(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), ".team")
+	dir := filepath.Join(t.TempDir(), "team")
 	bus, err := NewMessageBus(dir)
 	if err != nil {
 		t.Fatalf("NewMessageBus: %v", err)
@@ -114,7 +114,7 @@ func TestMessageBusSeparateInboxes(t *testing.T) {
 }
 
 func TestMessageBusInboxFileCreated(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), ".team")
+	dir := filepath.Join(t.TempDir(), "team")
 	bus, err := NewMessageBus(dir)
 	if err != nil {
 		t.Fatalf("NewMessageBus: %v", err)

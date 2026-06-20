@@ -23,7 +23,7 @@ func newTestManager(t *testing.T) *TeammateManager {
 		option.WithBaseURL(srv.URL),
 	)
 
-	teamDir := filepath.Join(t.TempDir(), ".team")
+	teamDir := filepath.Join(t.TempDir(), "team")
 	m, err := NewManager(&c, "claude-sonnet-4-6", t.TempDir(), teamDir, "lead")
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
@@ -165,7 +165,7 @@ func TestSendAndInbox(t *testing.T) {
 }
 
 func TestConfigPersistence(t *testing.T) {
-	teamDir := filepath.Join(t.TempDir(), ".team")
+	teamDir := filepath.Join(t.TempDir(), "team")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

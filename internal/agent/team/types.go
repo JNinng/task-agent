@@ -41,7 +41,7 @@ type Message struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-// Config is the team roster persisted as .team/config.json.
+// Config is the team roster persisted as team/config.json.
 type Config struct {
 	Lead    string     `json:"lead"`    // lead agent name (the main agent)
 	Members []Teammate `json:"members"` // all teammates (including idle/shutdown)

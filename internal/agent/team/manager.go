@@ -15,7 +15,7 @@ import (
 // and routes messages between team members through the MessageBus.
 // All public methods are safe for concurrent use.
 type TeammateManager struct {
-	dir     string // .team/
+	dir     string // team/
 	config  Config
 	bus     *MessageBus
 	client  *anthropic.Client
