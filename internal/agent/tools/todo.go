@@ -24,6 +24,25 @@ type TodoWriteTool struct {
 	Items []TodoItem
 }
 
+func (t *TodoWriteTool) PreviewInput(input json.RawMessage) string {
+	var args struct {
+		Items []struct {
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(input, &args); err == nil {
+		total := len(args.Items)
+		done := 0
+		for _, item := range args.Items {
+			if item.Status == "completed" {
+				done++
+			}
+		}
+		return fmt.Sprintf("%d/%d done", done, total)
+	}
+	return "..."
+}
+
 func (t *TodoWriteTool) Name() string { return "todo" }
 
 func (t *TodoWriteTool) Description() string {

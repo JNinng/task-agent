@@ -16,6 +16,14 @@ type ReadFileTool struct {
 	Workdir string
 }
 
+func (ReadFileTool) PreviewInput(input json.RawMessage) string {
+	var args struct{ Path string }
+	if err := json.Unmarshal(input, &args); err == nil && args.Path != "" {
+		return args.Path
+	}
+	return "..."
+}
+
 func (ReadFileTool) Name() string        { return "read_file" }
 func (ReadFileTool) Description() string { return "Read file contents." }
 

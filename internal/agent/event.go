@@ -22,3 +22,12 @@ type (
 	EventError struct{ Err error }
 	EventDone  struct{}
 )
+
+func (EventThinking) IsEvent()         {}
+func (EventText) IsEvent()             {}
+func (EventToolCalls) IsEvent()        {}
+func (EventToolResults) IsEvent()      {}
+func (EventTodoUpdate) IsEvent()       {}
+func (EventBackgroundResult) IsEvent() {}
+func (EventError) IsEvent()            {}
+func (EventDone) IsEvent()             {}

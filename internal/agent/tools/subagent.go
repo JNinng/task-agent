@@ -18,6 +18,8 @@ type SubagentProgress struct {
 	MaxTurns    int
 }
 
+func (SubagentProgress) IsEvent() {}
+
 // eventChKey is the context key for the TUI event channel that subagent
 // progress events are written to.
 type eventChKey struct{}
@@ -25,14 +27,14 @@ type eventChKey struct{}
 // WithEventChannel returns a child context carrying the TUI event channel.
 // SubagentTool.Execute extracts it via [EventChannelFrom] and sends
 // [SubagentProgress] events during execution.
-func WithEventChannel(ctx context.Context, ch chan<- any) context.Context {
+func WithEventChannel(ctx context.Context, ch chan<- Event) context.Context {
 	return context.WithValue(ctx, eventChKey{}, ch)
 }
 
 // EventChannelFrom extracts the TUI event channel from a context that was
 // previously wrapped with [WithEventChannel]. Returns nil if not set.
-func EventChannelFrom(ctx context.Context) chan<- any {
-	ch, _ := ctx.Value(eventChKey{}).(chan<- any)
+func EventChannelFrom(ctx context.Context) chan<- Event {
+	ch, _ := ctx.Value(eventChKey{}).(chan<- Event)
 	return ch
 }
 
@@ -56,6 +58,24 @@ type SubagentTool struct {
 // Anthropic client, model, and workspace root.
 func NewSubagentTool(client *anthropic.Client, model anthropic.Model, workdir string) *SubagentTool {
 	return &SubagentTool{client: client, model: model, workdir: workdir}
+}
+
+func (t *SubagentTool) PreviewInput(input json.RawMessage) string {
+	var args struct {
+		Prompt      string `json:"prompt"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(input, &args); err == nil {
+		if args.Description != "" {
+			return args.Description
+		}
+		s := args.Prompt
+		if len(s) > 80 {
+			s = s[:80] + "..."
+		}
+		return s
+	}
+	return "..."
 }
 
 func (t *SubagentTool) Name() string { return "task" }

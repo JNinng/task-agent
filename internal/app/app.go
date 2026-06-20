@@ -20,8 +20,7 @@ func Run(ctx context.Context) error {
 		return fmt.Errorf("agent init: %w", err)
 	}
 
-	runner := ag.Runner
-	p := tui.NewTUI(runner, tea.WithContext(ctx))
+	p := tui.NewTUI(ag.Runner, tea.WithContext(ctx))
 
 	if _, err := p.Run(); err != nil {
 		logger.Error("Agent TUI error", zap.Error(err))

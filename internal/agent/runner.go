@@ -13,6 +13,9 @@ import (
 	"task-agent/internal/agent/tools"
 )
 
+// Ensure Runner implements Session at compile time.
+var _ Session = (*Runner)(nil)
+
 type Runner struct {
 	agent           *Agent
 	messages        []anthropic.BetaMessageParam
@@ -37,6 +40,12 @@ func (r *Runner) Tool(name string) tools.Tool {
 	return r.agent.registry.Tool(name)
 }
 
+// PreviewToolUse returns a human-readable one-line preview of a tool
+// call, delegating to the tool's Previewer implementation.
+func (r *Runner) PreviewToolUse(tc tools.ToolUseBlock) string {
+	return tools.PreviewToolUse(tc, r.agent.registry)
+}
+
 // Messages returns a copy of the current message history for inspection.
 func (r *Runner) Messages() []anthropic.BetaMessageParam {
 	cp := make([]anthropic.BetaMessageParam, len(r.messages))
@@ -56,8 +65,8 @@ func (r *Runner) compact() (string, error) {
 	return "Conversation compacted successfully. Full transcript saved to disk.", nil
 }
 
-func (r *Runner) Run(ctx context.Context, input string) <-chan any {
-	ch := make(chan any, 10)
+func (r *Runner) Run(ctx context.Context, input string) <-chan tools.Event {
+	ch := make(chan tools.Event, 10)
 	go func() {
 		defer close(ch)
 		r.runLoop(ctx, input, ch)
@@ -65,7 +74,7 @@ func (r *Runner) Run(ctx context.Context, input string) <-chan any {
 	return ch
 }
 
-func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
+func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- tools.Event) {
 	r.messages = append(r.messages, anthropic.NewBetaUserMessage(
 		anthropic.BetaContentBlockParamUnion{
 			OfText: &anthropic.BetaTextBlockParam{Text: input},
@@ -281,7 +290,7 @@ func hasTaskBlock(blocks []tools.ToolUseBlock) bool {
 // queue and injects completed task results as a user message before the next
 // LLM call. Each notification becomes a <background-result> block so the
 // model can clearly distinguish them from the main conversation.
-func (r *Runner) injectBackgroundNotifications(ch chan<- any) {
+func (r *Runner) injectBackgroundNotifications(ch chan<- tools.Event) {
 	notifs := r.bgMgr.DrainNotifications()
 	if len(notifs) == 0 {
 		return
@@ -312,7 +321,7 @@ func (r *Runner) injectBackgroundNotifications(ch chan<- any) {
 // injectTeamInbox drains the lead agent's team inbox and injects teammate
 // messages before the next LLM call. Each message becomes a <team-inbox>
 // block so the model can clearly distinguish them from the main conversation.
-func (r *Runner) injectTeamInbox(ch chan<- any) {
+func (r *Runner) injectTeamInbox(ch chan<- tools.Event) {
 	msgs, err := r.teamMgr.ReadInbox(r.teamMgr.LeadName())
 	if err != nil || len(msgs) == 0 {
 		return
@@ -330,4 +339,19 @@ func (r *Runner) injectTeamInbox(ch chan<- any) {
 		anthropic.BetaContentBlockParamUnion{
 			OfText: &anthropic.BetaTextBlockParam{Text: b.String()},
 		}))
+}
+
+// Clear resets the message history to start a fresh conversation.
+func (r *Runner) Clear() {
+	r.messages = nil
+}
+
+// RenderTodo returns the formatted in-memory todo list string.
+// Returns an empty string if the todo tool is not available.
+func (r *Runner) RenderTodo() string {
+	t, ok := r.agent.registry.Tool("todo").(*tools.TodoWriteTool)
+	if !ok {
+		return ""
+	}
+	return t.Render()
 }

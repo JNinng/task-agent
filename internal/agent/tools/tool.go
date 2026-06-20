@@ -9,6 +9,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// Event is a marker interface for events sent from Runner to frontends.
+// Frontends type-switch on Event to render typed agent progress.
+type Event interface {
+	IsEvent()
+}
+
 // Tool is an alias for the SDK's BetaTool interface.
 type Tool = anthropic.BetaTool
 
@@ -17,6 +23,23 @@ type ToolUseBlock struct {
 	ID    string
 	Name  string
 	Input json.RawMessage
+}
+
+// Previewer is an optional interface that tools can implement to provide
+// a human-readable one-line preview of their input for display by frontends.
+type Previewer interface {
+	PreviewInput(input json.RawMessage) string
+}
+
+// PreviewToolUse returns a human-readable preview of a tool call block
+// by delegating to the tool's Previewer implementation, or "..." if
+// the tool does not implement one.
+func PreviewToolUse(tc ToolUseBlock, reg *Registry) string {
+	tool := reg.Tool(tc.Name)
+	if p, ok := tool.(Previewer); ok {
+		return p.PreviewInput(tc.Input)
+	}
+	return "..."
 }
 
 // ToolResult pairs a tool_use ID with its output content.

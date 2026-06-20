@@ -36,8 +36,8 @@ var agentCommands = map[string]string{
 // model 是 Bubble Tea 的核心模型，持有 UI 组件状态和展示内容。
 // agent 循环逻辑由 Runner 管理，model 仅负责展示。
 type model struct {
-	runner   *agent.Runner
-	runnerCh <-chan any // 当前活跃的事件 channel
+	session  agent.Session
+	runnerCh <-chan tools.Event // 当前活跃的事件 channel
 
 	// 控制 Runner.Run 的 goroutine 生命周期。
 	// ctx 的新子 context 在每次 submit 时创建，退出时取消。
@@ -59,7 +59,7 @@ type model struct {
 }
 
 // NewTUI 创建并配置 Bubble Tea 程序实例。
-func NewTUI(runner *agent.Runner, opts ...tea.ProgramOption) *tea.Program {
+func NewTUI(session agent.Session, opts ...tea.ProgramOption) *tea.Program {
 	ta := textarea.New()
 	ta.Placeholder = "Ask something..."
 	ta.SetVirtualCursor(false)
@@ -86,7 +86,7 @@ func NewTUI(runner *agent.Runner, opts ...tea.ProgramOption) *tea.Program {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return tea.NewProgram(&model{
-		runner:       runner,
+		session:      session,
 		ctx:          ctx,
 		cancel:       cancel,
 		textarea:     ta,
@@ -146,7 +146,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agent.EventToolCalls:
 		var lines []string
 		for _, tc := range msg.Tools {
-			lines = append(lines, styleYellow.Render(fmt.Sprintf("> %s(%s)", tc.Name, toolPreview(tc))))
+			lines = append(lines, styleYellow.Render(fmt.Sprintf("> %s(%s)", tc.Name, m.session.PreviewToolUse(tc))))
 		}
 		return m.emitEvent(lines...)
 
@@ -288,11 +288,20 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 		m.appendContent(m.senderStyle.Render(">>> ") + query)
 		m.textarea.Reset()
 		m.autocomplete.Reset()
-		if t, ok := m.runner.Tool("todo").(*tools.TodoWriteTool); ok {
-			m.appendContent(styleCyan.Render(t.Render()))
+		if s := m.session.RenderTodo(); s != "" {
+			m.appendContent(styleCyan.Render(s))
 		} else {
 			m.appendContent(styleRed.Render("Todo tool not available"))
 		}
+		m.refreshViewport()
+		return m, nil
+	}
+
+	if query == "/clear" {
+		m.session.Clear()
+		m.content = nil
+		m.textarea.Reset()
+		m.autocomplete.Reset()
 		m.refreshViewport()
 		return m, nil
 	}
@@ -316,19 +325,19 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 	m.cancel()
 	// 排空旧 channel 防止前一次 watchRunner 残留导致事件交错。
 	if m.runnerCh != nil {
-		go func(old <-chan any) {
+		go func(old <-chan tools.Event) {
 			for range old {
 			}
 		}(m.runnerCh)
 	}
 	m.ctx, m.cancel = context.WithCancel(context.Background())
-	ch := m.runner.Run(m.ctx, query)
+	ch := m.session.Run(m.ctx, query)
 	m.runnerCh = ch
 	return m, tea.Batch(watchRunner(ch), thinkTick(), textarea.Blink)
 }
 
 // watchRunner 从 Runner 事件 channel 读取下一个事件并转换为 Bubble Tea 消息。
-func watchRunner(ch <-chan any) tea.Cmd {
+func watchRunner(ch <-chan tools.Event) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-ch
 		if !ok {
@@ -355,64 +364,6 @@ func (m *model) resizeViewport() {
 	viewportHeight := max(1, m.termHeight-m.textarea.Height()-1-m.autocomplete.Height())
 	m.viewport.SetHeight(viewportHeight)
 	m.viewport.GotoBottom()
-}
-
-// toolPreview returns a concise preview string for a tool call block.
-func toolPreview(tc tools.ToolUseBlock) string {
-	switch tc.Name {
-	case "bash":
-		var args struct {
-			Command string `json:"command"`
-		}
-		if err := json.Unmarshal(tc.Input, &args); err == nil && args.Command != "" {
-			s := args.Command
-			if len(s) > 80 {
-				s = s[:80] + "..."
-			}
-			return s
-		}
-	case "todo":
-		var args struct {
-			Items []struct {
-				ID     string `json:"id"`
-				Text   string `json:"text"`
-				Status string `json:"status"`
-			} `json:"items"`
-		}
-		if err := json.Unmarshal(tc.Input, &args); err == nil {
-			total := len(args.Items)
-			done := 0
-			for _, item := range args.Items {
-				if item.Status == "completed" {
-					done++
-				}
-			}
-			return fmt.Sprintf("%d/%d done", done, total)
-		}
-	case "task":
-		var args struct {
-			Prompt      string `json:"prompt"`
-			Description string `json:"description"`
-		}
-		if err := json.Unmarshal(tc.Input, &args); err == nil {
-			if args.Description != "" {
-				return args.Description
-			}
-			s := args.Prompt
-			if len(s) > 80 {
-				s = s[:80] + "..."
-			}
-			return s
-		}
-	case "read_file", "write_file", "edit_file":
-		var args struct {
-			Path string `json:"path"`
-		}
-		if err := json.Unmarshal(tc.Input, &args); err == nil && args.Path != "" {
-			return args.Path
-		}
-	}
-	return "..."
 }
 
 // isValidPath checks if the path is syntactically valid on this OS.
@@ -451,7 +402,7 @@ func isValidPath(p string) bool {
 //	/memctx a?b.jsonl → .task-agent/memctx/<timestamp>.jsonl
 //	/memctx ../|a     → .task-agent/memctx/<timestamp>.jsonl  （../ 也丢失）
 func (m *model) handleMemctx(query string) {
-	msgs := m.runner.Messages()
+	msgs := m.session.Messages()
 
 	// Parse optional filename argument
 	arg := strings.TrimPrefix(query, "/memctx")

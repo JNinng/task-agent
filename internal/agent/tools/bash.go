@@ -23,6 +23,18 @@ var dangerousPatterns = []string{
 // BashTool executes shell commands.
 type BashTool struct{}
 
+func (BashTool) PreviewInput(input json.RawMessage) string {
+	var args struct{ Command string }
+	if err := json.Unmarshal(input, &args); err == nil && args.Command != "" {
+		s := args.Command
+		if len(s) > 80 {
+			s = s[:80] + "..."
+		}
+		return s
+	}
+	return "..."
+}
+
 func (BashTool) Name() string { return "bash" }
 func (BashTool) Description() string {
 	if runtime.GOOS == "windows" {
