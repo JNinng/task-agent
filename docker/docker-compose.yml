@@ -64,7 +64,7 @@ services:
     networks:
       - prom-net
 
-# cAdvisor 容器指标采集器
+  # cAdvisor 容器指标采集器
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.55.1
     container_name: cadvisor

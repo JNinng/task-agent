@@ -18,8 +18,8 @@ type Runner struct {
 	messages        []anthropic.BetaMessageParam
 	roundsSinceTodo int
 	compactCfg      CompactionConfig
-	compacted       bool                // set when autoCompact replaces messages; skips tool_result appending
-	bgMgr           *background.Manager // tracks background tasks; nil if not wired yet
+	compacted       bool                  // set when autoCompact replaces messages; skips tool_result appending
+	bgMgr           *background.Manager   // tracks background tasks; nil if not wired yet
 	teamMgr         *team.TeammateManager // tracks agent team; nil if not wired yet
 }
 

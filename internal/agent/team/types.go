@@ -7,13 +7,13 @@
 //
 // Communication:
 //
-//	      +--------+    send("alice","bob","...")    +--------+
-//	      | alice  | -----------------------------> |  bob   |
-//	      | loop   |    bob.jsonl << {json_line}    |  loop  |
-//	      +--------+                                +--------+
-//	           ^                                         |
-//	           |        read_inbox("alice")              |
-//	           +---- alice.jsonl -> read + drain ---------+
+//	+--------+    send("alice","bob","...")    +--------+
+//	| alice  | -----------------------------> |  bob   |
+//	| loop   |    bob.jsonl << {json_line}    |  loop  |
+//	+--------+                                +--------+
+//	     ^                                         |
+//	     |        read_inbox("alice")              |
+//	     +---- alice.jsonl -> read + drain ---------+
 package team
 
 // Status represents the life-cycle state of a teammate.
@@ -35,7 +35,7 @@ type Teammate struct {
 
 // Message is one line in a JSONL inbox file.
 type Message struct {
-	Type      string `json:"type"`      // "message" | "broadcast"
+	Type      string `json:"type"` // "message" | "broadcast"
 	From      string `json:"from"`
 	Content   string `json:"content"`
 	Timestamp int64  `json:"timestamp"`
@@ -43,6 +43,6 @@ type Message struct {
 
 // Config is the team roster persisted as .team/config.json.
 type Config struct {
-	Lead    string      `json:"lead"`    // lead agent name (the main agent)
-	Members []Teammate  `json:"members"` // all teammates (including idle/shutdown)
+	Lead    string     `json:"lead"`    // lead agent name (the main agent)
+	Members []Teammate `json:"members"` // all teammates (including idle/shutdown)
 }

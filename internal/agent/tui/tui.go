@@ -131,7 +131,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case thinkTickMsg:
 		if m.thinking {
 			m.refreshViewport()
-		return m, thinkTick()
+			return m, thinkTick()
 		}
 		return m, nil
 
@@ -285,7 +285,7 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 	}
 
 	if query == "/todo" {
-		m.appendContent(m.senderStyle.Render(">>> ")+query)
+		m.appendContent(m.senderStyle.Render(">>> ") + query)
 		m.textarea.Reset()
 		m.autocomplete.Reset()
 		if t, ok := m.runner.Tool("todo").(*tools.TodoWriteTool); ok {
@@ -298,7 +298,7 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 	}
 
 	if query == "/memctx" || strings.HasPrefix(query, "/memctx ") {
-		m.appendContent(m.senderStyle.Render(">>> ")+query)
+		m.appendContent(m.senderStyle.Render(">>> ") + query)
 		m.textarea.Reset()
 		m.autocomplete.Reset()
 		m.handleMemctx(query)
@@ -306,25 +306,25 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.appendContent(m.senderStyle.Render(">>> ")+query)
+	m.appendContent(m.senderStyle.Render(">>> ") + query)
 	m.textarea.Reset()
 	m.autocomplete.Reset()
 	m.thinking = true
 	m.refreshViewport()
 
-		// 取消前一次运行（若有）防止 goroutine 泄漏。
-		m.cancel()
-		// 排空旧 channel 防止前一次 watchRunner 残留导致事件交错。
-		if m.runnerCh != nil {
-			go func(old <-chan any) {
-				for range old {
-				}
-			}(m.runnerCh)
-		}
-		m.ctx, m.cancel = context.WithCancel(context.Background())
-		ch := m.runner.Run(m.ctx, query)
-		m.runnerCh = ch
-		return m, tea.Batch(watchRunner(ch), thinkTick(), textarea.Blink)
+	// 取消前一次运行（若有）防止 goroutine 泄漏。
+	m.cancel()
+	// 排空旧 channel 防止前一次 watchRunner 残留导致事件交错。
+	if m.runnerCh != nil {
+		go func(old <-chan any) {
+			for range old {
+			}
+		}(m.runnerCh)
+	}
+	m.ctx, m.cancel = context.WithCancel(context.Background())
+	ch := m.runner.Run(m.ctx, query)
+	m.runnerCh = ch
+	return m, tea.Batch(watchRunner(ch), thinkTick(), textarea.Blink)
 }
 
 // watchRunner 从 Runner 事件 channel 读取下一个事件并转换为 Bubble Tea 消息。
