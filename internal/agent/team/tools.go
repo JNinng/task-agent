@@ -20,26 +20,41 @@ type TeamSpawnTool struct {
 func (t *TeamSpawnTool) Name() string { return "team_spawn" }
 
 func (t *TeamSpawnTool) Description() string {
-	return "Create a new teammate with a name, role, and initial task prompt. " +
-		"The teammate runs independently in the background. Its results are " +
-		"automatically delivered to you — no need to poll team_inbox. " +
-		"Use team_send to assign follow-up work or ask questions."
+	return "DELEGATE a task to a persistent teammate. This should be your FIRST action — " +
+		"do NOT run bash/read_file/listing before spawning. The teammate does all " +
+		"exploration and work independently; your job is to hand off, not prepare.\n\n" +
+		"USAGE RULES:\n" +
+		"- Call this IMMEDIATELY when the user asks for work a teammate can do.\n" +
+		"- Write a COMPLETE prompt: include the exact commands to run, what to check,\n" +
+		"  and how to report results. The teammate sees only this prompt.\n" +
+		"- Do NOT explore the project first. The teammate explores.\n" +
+		"- Results are auto-delivered to your inbox — you will see them without polling.\n\n" +
+		"EXAMPLE: user says 'run tests' →\n" +
+		"  team_spawn(name='tester', role='tester',\n" +
+		"    prompt='Run: cd F:/path && go test ./... -v -count=1 && go vet ./...\n" +
+		"    Report: pass/fail counts, failures with file:line, and any vet warnings.')\n\n" +
+		"After spawning, do NOT call team_inbox. The teammate's reply arrives automatically."
 }
 
 func (t *TeamSpawnTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 	return anthropic.BetaToolInputSchemaParam{
 		Properties: map[string]any{
 			"name": map[string]any{
-				"type":        "string",
-				"description": "Unique name for the teammate (e.g. 'alice', 'bob').",
+				"type": "string",
+				"description": "Short unique name (e.g. 'tester', 'builder', 'reviewer'). " +
+					"Use a descriptive role-based name.",
 			},
 			"role": map[string]any{
-				"type":        "string",
-				"description": "The teammate's role or specialty (e.g. 'coder', 'tester', 'reviewer').",
+				"type": "string",
+				"description": "What this teammate does (e.g. 'Go test runner', 'code reviewer').",
 			},
 			"prompt": map[string]any{
-				"type":        "string",
-				"description": "The initial task or instructions for the teammate.",
+				"type": "string",
+				"description": "Complete task instructions. Be SPECIFIC: include exact commands, " +
+					"file paths, expected outputs, and how to report results. " +
+					"The teammate sees ONLY this prompt — it must be self-contained. " +
+					"Example: 'cd F:/project && go test ./... -v -count=1 2>&1. " +
+					"Report: total passed/failed, each failure with file:line and error message.'",
 			},
 		},
 		Required: []string{"name", "role", "prompt"},
@@ -74,31 +89,34 @@ func (t *TeamSpawnTool) Execute(_ context.Context, input json.RawMessage) ([]ant
 
 // ── TeamSendTool ────────────────────────────────────────────────────
 
-// SendTool sends a message to a teammate (or broadcasts to all).
+// TeamSendTool sends a message to a teammate (or broadcasts to all).
 // The lead agent uses this to assign work, request status, or coordinate.
-type SendTool struct {
+type TeamSendTool struct {
 	Mgr        *TeammateManager
 	SenderName string // typically "lead"
 }
 
-func (t *SendTool) Name() string { return "team_send" }
+func (t *TeamSendTool) Name() string { return "team_send" }
 
-func (t *SendTool) Description() string {
-	return "Send a message to a teammate or broadcast to all. " +
-		"Use this to assign tasks, request status updates, or coordinate work. " +
-		"Set to='all' to broadcast to every teammate."
+func (t *TeamSendTool) Description() string {
+	return "Send a follow-up message to a teammate or broadcast to all. " +
+		"Use this ONLY for follow-up work after the teammate is already spawned — " +
+		"the initial task should be in the team_spawn prompt. " +
+		"Use cases: assign additional work, ask for status update, request a specific check. " +
+		"Set to='all' to broadcast to every teammate. " +
+		"Recipients are automatically woken to process your message."
 }
 
-func (t *SendTool) InputSchema() anthropic.BetaToolInputSchemaParam {
+func (t *TeamSendTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 	return anthropic.BetaToolInputSchemaParam{
 		Properties: map[string]any{
 			"to": map[string]any{
-				"type":        "string",
+				"type": "string",
 				"description": "Teammate name to send to, or 'all' to broadcast to every teammate.",
 			},
 			"content": map[string]any{
-				"type":        "string",
-				"description": "The message content.",
+				"type": "string",
+				"description": "The message content. Be clear and specific about what you need.",
 			},
 			"msg_type": map[string]any{
 				"type":        "string",
@@ -109,7 +127,7 @@ func (t *SendTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 	}
 }
 
-func (t *SendTool) Execute(_ context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
+func (t *TeamSendTool) Execute(_ context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
 	var args struct {
 		To      string `json:"to"`
 		Content string `json:"content"`
@@ -148,9 +166,12 @@ type TeamInboxTool struct {
 func (t *TeamInboxTool) Name() string { return "team_inbox" }
 
 func (t *TeamInboxTool) Description() string {
-	return "Manually check your inbox for teammate messages (rarely needed — " +
-		"teammate replies are automatically injected before your next response). " +
-		"Only use this when you explicitly need to drain the inbox mid-turn."
+	return "EMERGENCY-ONLY: manually read and drain your inbox. " +
+		"DO NOT USE THIS ROUTINELY. Teammate replies are automatically injected " +
+		"into your context before each response — you see them without asking. " +
+		"Calling this repeatedly wastes tokens and is never necessary. " +
+		"Only use team_inbox when you have a specific reason to drain the inbox " +
+		"mid-turn (e.g., a command requires the raw message list)."
 }
 
 func (t *TeamInboxTool) InputSchema() anthropic.BetaToolInputSchemaParam {
