@@ -119,8 +119,10 @@ func New() (*Agent, error) {
 			"  - team_send   - send a message to a teammate (or 'all' to broadcast)\n"+
 			"  - team_inbox  - emergency-only; results auto-inject, do NOT poll\n"+
 			"Teammates run independently. CRITICAL RULES:\n"+
-			"1. Spawn immediately — do NOT explore files or run commands first.\n"+
-			"   The teammate does all work. Your job is to delegate, not prepare.\n"+
+			"1. SPAWN FIRST — no bash/read_file/listing before spawn.\n"+
+			"   The teammate explores. You delegate. Example: user says 'run tests'\n"+
+			"   → team_spawn(name='tester', role='tester',\n"+
+			"     prompt='Run go test ./... and go vet ./..., report results'). Done.\n"+
 			"2. NEVER call team_inbox. Results auto-inject before your next response.\n"+
 			"   Do not say 'still waiting' or 'checking progress'. Wait silently.\n"+
 			"3. NEVER run the same command the teammate is running (no duplicate bash).\n"+
