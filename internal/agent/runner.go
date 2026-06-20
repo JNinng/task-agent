@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"task-agent/internal/agent/background"
+	"task-agent/internal/agent/team"
 	"task-agent/internal/agent/tools"
 )
 
@@ -19,10 +20,11 @@ type Runner struct {
 	compactCfg      CompactionConfig
 	compacted       bool                // set when autoCompact replaces messages; skips tool_result appending
 	bgMgr           *background.Manager // tracks background tasks; nil if not wired yet
+	teamMgr         *team.TeammateManager // tracks agent team; nil if not wired yet
 }
 
-func NewRunner(ag *Agent, cfg CompactionConfig, bgMgr *background.Manager, setCompact func(func() (string, error))) *Runner {
-	r := &Runner{agent: ag, compactCfg: cfg, bgMgr: bgMgr}
+func NewRunner(ag *Agent, cfg CompactionConfig, bgMgr *background.Manager, teamMgr *team.TeammateManager, setCompact func(func() (string, error))) *Runner {
+	r := &Runner{agent: ag, compactCfg: cfg, bgMgr: bgMgr, teamMgr: teamMgr}
 	setCompact(r.compact)
 	return r
 }
@@ -79,6 +81,12 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- any) {
 		// next LLM call so the model can react to results.
 		if r.bgMgr != nil {
 			r.injectBackgroundNotifications(ch)
+		}
+
+		// Layer 1c: inject teammate inbox messages before the next LLM call
+		// so the lead can react to teammate replies.
+		if r.teamMgr != nil {
+			r.injectTeamInbox(ch)
 		}
 
 		resp, err := r.agent.client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
@@ -294,6 +302,29 @@ func (r *Runner) injectBackgroundNotifications(ch chan<- any) {
 		}
 	}
 	b.WriteString("</background-results>")
+
+	r.messages = append(r.messages, anthropic.NewBetaUserMessage(
+		anthropic.BetaContentBlockParamUnion{
+			OfText: &anthropic.BetaTextBlockParam{Text: b.String()},
+		}))
+}
+
+// injectTeamInbox drains the lead agent's team inbox and injects teammate
+// messages before the next LLM call. Each message becomes a <team-inbox>
+// block so the model can clearly distinguish them from the main conversation.
+func (r *Runner) injectTeamInbox(ch chan<- any) {
+	msgs, err := r.teamMgr.ReadInbox(r.teamMgr.LeadName())
+	if err != nil || len(msgs) == 0 {
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("<team-inbox>\n")
+	for _, msg := range msgs {
+		b.WriteString(fmt.Sprintf("  <message from=%q type=%q>%s</message>\n",
+			msg.From, msg.Type, msg.Content))
+	}
+	b.WriteString("</team-inbox>")
 
 	r.messages = append(r.messages, anthropic.NewBetaUserMessage(
 		anthropic.BetaContentBlockParamUnion{

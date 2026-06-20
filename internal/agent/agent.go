@@ -11,6 +11,7 @@ import (
 	"task-agent/internal/agent/background"
 	"task-agent/internal/agent/skill"
 	"task-agent/internal/agent/tasks"
+	"task-agent/internal/agent/team"
 	"task-agent/internal/agent/tools"
 )
 
@@ -86,6 +87,13 @@ func New() (*Agent, error) {
 	// --- Background task manager ---
 	bgMgr := background.NewManager()
 
+	// --- Agent team manager ---
+	teamDir := TeamDir(DataDir())
+	teamMgr, err := team.NewManager(&client, anthropic.Model(modelID), cwd, teamDir, "lead")
+	if err != nil {
+		return nil, fmt.Errorf("team manager: %w", err)
+	}
+
 	// Build system prompt with two-layer skill injection
 	var systemText strings.Builder
 	systemText.WriteString(fmt.Sprintf(
@@ -105,7 +113,19 @@ func New() (*Agent, error) {
 			"  - background_bash - run a shell command in the background and continue working\n"+
 			"  - check_background - check the status of background tasks\n"+
 			"Use background_bash for long-running commands (npm install, pytest, etc.). "+
-			"Results are automatically delivered to you when they complete.",
+			"Results are automatically delivered to you when they complete.\n\n"+
+			"Agent team:\n"+
+			"  - team_spawn - create a persistent teammate with a name, role, and initial task\n"+
+			"  - team_send   - send a message to a teammate (or 'all' to broadcast)\n"+
+			"  - team_inbox  - emergency-only; results auto-inject, do NOT poll\n"+
+			"Teammates run independently. CRITICAL RULES:\n"+
+			"1. Spawn immediately — do NOT explore files or run commands first.\n"+
+			"   The teammate does all work. Your job is to delegate, not prepare.\n"+
+			"2. NEVER call team_inbox. Results auto-inject before your next response.\n"+
+			"   Do not say 'still waiting' or 'checking progress'. Wait silently.\n"+
+			"3. NEVER run the same command the teammate is running (no duplicate bash).\n"+
+			"4. When a teammate's result arrives, report it to the user naturally.\n"+
+			"Use /team to view the roster.",
 		cwd,
 	))
 
@@ -138,7 +158,7 @@ func New() (*Agent, error) {
 
 	var compactTrigger func() (string, error)
 
-	ag.Runner = NewRunner(ag, compactCfg, bgMgr, func(fn func() (string, error)) {
+	ag.Runner = NewRunner(ag, compactCfg, bgMgr, teamMgr, func(fn func() (string, error)) {
 		compactTrigger = fn
 	})
 
@@ -156,6 +176,9 @@ func New() (*Agent, error) {
 		skill.NewLoadSkillTool(loader),
 		&tools.BackgroundBashTool{Mgr: bgMgr},
 		&tools.CheckBackgroundTool{Mgr: bgMgr},
+		&team.TeamSpawnTool{Mgr: teamMgr},
+		&team.SendTool{Mgr: teamMgr, SenderName: "lead"},
+		&team.TeamInboxTool{Mgr: teamMgr, ReaderName: "lead"},
 		tools.NewCompactTool(func() (string, error) {
 			if compactTrigger == nil {
 				return "", fmt.Errorf("compact not initialized")

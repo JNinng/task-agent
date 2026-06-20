@@ -49,7 +49,7 @@ func TestCompactSetsCompactedFlag(t *testing.T) {
 	cfg := DefaultCompactionConfig()
 	cfg.TranscriptDir = filepath.Join(t.TempDir(), "transcripts")
 
-	r := NewRunner(ag, cfg, nil, func(fn func() (string, error)) {})
+	r := NewRunner(ag, cfg, nil, nil, func(fn func() (string, error)) {})
 
 	r.messages = []anthropic.BetaMessageParam{
 		anthropic.NewBetaUserMessage(
@@ -105,7 +105,7 @@ func TestCompactDoesNotSetFlagOnFailure(t *testing.T) {
 	cfg := DefaultCompactionConfig()
 	cfg.TranscriptDir = filepath.Join(t.TempDir(), "transcripts")
 
-	r := NewRunner(ag, cfg, nil, func(fn func() (string, error)) {})
+	r := NewRunner(ag, cfg, nil, nil, func(fn func() (string, error)) {})
 
 	r.messages = []anthropic.BetaMessageParam{
 		anthropic.NewBetaUserMessage(
@@ -152,7 +152,7 @@ func TestCompactSavesTranscript(t *testing.T) {
 	cfg := DefaultCompactionConfig()
 	cfg.TranscriptDir = transcriptDir
 
-	r := NewRunner(ag, cfg, nil, func(fn func() (string, error)) {})
+	r := NewRunner(ag, cfg, nil, nil, func(fn func() (string, error)) {})
 
 	r.messages = []anthropic.BetaMessageParam{
 		anthropic.NewBetaUserMessage(
