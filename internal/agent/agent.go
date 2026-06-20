@@ -178,8 +178,8 @@ func New() (*Agent, error) {
 		skill.NewLoadSkillTool(loader),
 		&tools.BackgroundBashTool{Mgr: bgMgr},
 		&tools.CheckBackgroundTool{Mgr: bgMgr},
-		&team.TeamSpawnTool{Mgr: teamMgr},
-		&team.TeamSendTool{Mgr: teamMgr, SenderName: "lead"},
+		&team.SpawnTool{Mgr: teamMgr},
+		&team.SendTool{Mgr: teamMgr, SenderName: "lead"},
 		&team.TeamInboxTool{Mgr: teamMgr, ReaderName: "lead"},
 		tools.NewCompactTool(func() (string, error) {
 			if compactTrigger == nil {

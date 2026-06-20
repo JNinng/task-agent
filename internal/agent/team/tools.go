@@ -11,15 +11,15 @@ import (
 
 // ── TeamSpawnTool ───────────────────────────────────────────────────
 
-// TeamSpawnTool creates a new teammate and starts its agent loop.
+// SpawnTool creates a new teammate and starts its agent loop.
 // This is the lead agent's spawn tool.
-type TeamSpawnTool struct {
+type SpawnTool struct {
 	Mgr *TeammateManager
 }
 
-func (t *TeamSpawnTool) Name() string { return "team_spawn" }
+func (t *SpawnTool) Name() string { return "team_spawn" }
 
-func (t *TeamSpawnTool) Description() string {
+func (t *SpawnTool) Description() string {
 	return "DELEGATE a task to a persistent teammate. This should be your FIRST action — " +
 		"do NOT run bash/read_file/listing before spawning. The teammate does all " +
 		"exploration and work independently; your job is to hand off, not prepare.\n\n" +
@@ -36,7 +36,7 @@ func (t *TeamSpawnTool) Description() string {
 		"After spawning, do NOT call team_inbox. The teammate's reply arrives automatically."
 }
 
-func (t *TeamSpawnTool) InputSchema() anthropic.BetaToolInputSchemaParam {
+func (t *SpawnTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 	return anthropic.BetaToolInputSchemaParam{
 		Properties: map[string]any{
 			"name": map[string]any{
@@ -45,7 +45,7 @@ func (t *TeamSpawnTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 					"Use a descriptive role-based name.",
 			},
 			"role": map[string]any{
-				"type": "string",
+				"type":        "string",
 				"description": "What this teammate does (e.g. 'Go test runner', 'code reviewer').",
 			},
 			"prompt": map[string]any{
@@ -61,7 +61,7 @@ func (t *TeamSpawnTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 	}
 }
 
-func (t *TeamSpawnTool) Execute(_ context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
+func (t *SpawnTool) Execute(_ context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
 	var args struct {
 		Name   string `json:"name"`
 		Role   string `json:"role"`
@@ -89,16 +89,16 @@ func (t *TeamSpawnTool) Execute(_ context.Context, input json.RawMessage) ([]ant
 
 // ── TeamSendTool ────────────────────────────────────────────────────
 
-// TeamSendTool sends a message to a teammate (or broadcasts to all).
+// SendTool sends a message to a teammate (or broadcasts to all).
 // The lead agent uses this to assign work, request status, or coordinate.
-type TeamSendTool struct {
+type SendTool struct {
 	Mgr        *TeammateManager
 	SenderName string // typically "lead"
 }
 
-func (t *TeamSendTool) Name() string { return "team_send" }
+func (t *SendTool) Name() string { return "team_send" }
 
-func (t *TeamSendTool) Description() string {
+func (t *SendTool) Description() string {
 	return "Send a follow-up message to a teammate or broadcast to all. " +
 		"Use this ONLY for follow-up work after the teammate is already spawned — " +
 		"the initial task should be in the team_spawn prompt. " +
@@ -107,15 +107,15 @@ func (t *TeamSendTool) Description() string {
 		"Recipients are automatically woken to process your message."
 }
 
-func (t *TeamSendTool) InputSchema() anthropic.BetaToolInputSchemaParam {
+func (t *SendTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 	return anthropic.BetaToolInputSchemaParam{
 		Properties: map[string]any{
 			"to": map[string]any{
-				"type": "string",
+				"type":        "string",
 				"description": "Teammate name to send to, or 'all' to broadcast to every teammate.",
 			},
 			"content": map[string]any{
-				"type": "string",
+				"type":        "string",
 				"description": "The message content. Be clear and specific about what you need.",
 			},
 			"msg_type": map[string]any{
@@ -127,7 +127,7 @@ func (t *TeamSendTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 	}
 }
 
-func (t *TeamSendTool) Execute(_ context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
+func (t *SendTool) Execute(_ context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
 	var args struct {
 		To      string `json:"to"`
 		Content string `json:"content"`
