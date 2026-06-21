@@ -23,6 +23,10 @@ type TeammateManager struct {
 	workdir string
 	mu      sync.Mutex
 	loops   map[string]*teammateLoop // name -> running loop
+
+	// 协议请求追踪器
+	shutdownRequests map[string]*ShutdownRequest // request_id → shutdown request
+	planRequests     map[string]*PlanRequest     // request_id → plan request
 }
 
 // NewManager initializes the team directory and loads the existing roster
@@ -39,12 +43,14 @@ func NewManager(client *anthropic.Client, model anthropic.Model, workdir, teamDi
 	}
 
 	m := &TeammateManager{
-		dir:     teamDir,
-		bus:     bus,
-		client:  client,
-		model:   model,
-		workdir: workdir,
-		loops:   make(map[string]*teammateLoop),
+		dir:              teamDir,
+		bus:              bus,
+		client:           client,
+		model:            model,
+		workdir:          workdir,
+		loops:            make(map[string]*teammateLoop),
+		shutdownRequests: make(map[string]*ShutdownRequest),
+		planRequests:     make(map[string]*PlanRequest),
 	}
 
 	m.config = m.loadConfig(leadName)
@@ -137,6 +143,140 @@ func (m *TeammateManager) ShutdownAll() {
 		m.config.Members[i].Status = StatusShutdown
 	}
 	m.saveConfig()
+}
+
+// ── Protocol: Shutdown Request ────────────────────────────────────────
+
+// RequestShutdown 向队友发起优雅关机请求。返回 request_id 供后续追踪。
+// 与直接调用 Shutdown() 不同，此方法通过消息总线发送 shutdown_request，
+// 由队友的 LLM 决定批准或拒绝。
+func (m *TeammateManager) RequestShutdown(teammate, reason string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// 检查目标是否存在
+	found := false
+	for _, tm := range m.config.Members {
+		if tm.Name == teammate && tm.Status != StatusShutdown {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", fmt.Errorf("shutdown_request: 队友 '%s' 未在运行", teammate)
+	}
+
+	req := m.trackShutdownRequest(teammate, reason)
+
+	msg := Message{
+		Type:      "shutdown_request",
+		From:      m.config.Lead,
+		Content:   reason,
+		RequestID: req.RequestID,
+		Timestamp: time.Now().Unix(),
+	}
+	if err := m.bus.Send(teammate, msg); err != nil {
+		return "", fmt.Errorf("shutdown_request: %w", err)
+	}
+
+	// 唤醒目标队友
+	if loop, ok := m.loops[teammate]; ok {
+		loop.wake()
+	}
+
+	return req.RequestID, nil
+}
+
+// ResolveShutdownRequest 队友调用此方法来响应关机请求。
+// approve=true 表示同意关机，会实际执行 Shutdown()。
+// approve=false 表示拒绝关机，队友继续工作。
+func (m *TeammateManager) ResolveShutdownRequest(requestID string, approve bool, reason string) error {
+	m.mu.Lock()
+
+	if err := m.resolveShutdownRequest(requestID, approve, reason); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+
+	req := m.shutdownRequests[requestID]
+
+	// 发送响应给 lead
+	resp := Message{
+		Type:      "shutdown_response",
+		From:      req.Target,
+		Content:   reason,
+		RequestID: requestID,
+		Approve:   &approve,
+		Timestamp: time.Now().Unix(),
+	}
+	m.mu.Unlock()
+
+	// 不持锁发送（避免死锁）
+	if err := m.bus.Send(m.config.Lead, resp); err != nil {
+		return fmt.Errorf("shutdown_response: %w", err)
+	}
+
+	if approve {
+		// 优雅关机 — 复用现有的 Shutdown 方法
+		return m.Shutdown(req.Target)
+	}
+
+	return nil
+}
+
+// ── Protocol: Plan Approval ──────────────────────────────────────────
+
+// SubmitPlan 队友提交计划给 lead 审批。返回 request_id 供后续追踪。
+func (m *TeammateManager) SubmitPlan(from, plan string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	req := m.trackPlanRequest(from, plan)
+
+	msg := Message{
+		Type:      "plan_request",
+		From:      from,
+		Content:   plan,
+		RequestID: req.RequestID,
+		Timestamp: time.Now().Unix(),
+	}
+	if err := m.bus.Send(m.config.Lead, msg); err != nil {
+		return "", fmt.Errorf("plan_request: %w", err)
+	}
+
+	return req.RequestID, nil
+}
+
+// ResolvePlanRequest lead 调用此方法来批准或拒绝队友的计划。
+func (m *TeammateManager) ResolvePlanRequest(requestID string, approve bool, feedback string) error {
+	m.mu.Lock()
+
+	if err := m.resolvePlanRequest(requestID, approve, feedback); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+
+	req := m.planRequests[requestID]
+
+	resp := Message{
+		Type:      "plan_response",
+		From:      m.config.Lead,
+		Content:   feedback,
+		RequestID: requestID,
+		Approve:   &approve,
+		Timestamp: time.Now().Unix(),
+	}
+	m.mu.Unlock()
+
+	// 不持锁发送（避免死锁）
+	if err := m.bus.Send(req.From, resp); err != nil {
+		return fmt.Errorf("plan_response: %w", err)
+	}
+
+	// 唤醒等待审批结果的队友
+	m.wakeTeammate(req.From)
+
+	return nil
 }
 
 // Send routes a message from sender to a recipient. If to is "all",

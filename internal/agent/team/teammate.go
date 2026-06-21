@@ -47,7 +47,14 @@ func newTeammateLoop(
 				"Work in %s. Use tools to complete the tasks assigned to you.\n"+
 				"When you finish a task, use team_send to send your results back\n"+
 				"to the lead or the teammate who requested the work.\n"+
-				"Do NOT spawn additional teammates or subagents.",
+				"Do NOT spawn additional teammates or subagents.\n\n"+
+				"### Team Protocols\n"+
+				"- 当你收到 type=\"shutdown_request\" 的消息时，使用 team_shutdown_response\n"+
+				"  响应，引用相同的 request_id。如果可以安全停止当前工作，设置 approve: true；\n"+
+				"  如果正在执行关键操作且不能中断，设置 approve: false 并说明原因。\n"+
+				"- 在执行高风险或不可逆操作前（如重构代码、删除文件、破坏性更改），\n"+
+				"  先使用 team_plan_request 提交计划给 lead 审批。等待 <team-inbox> 中出现\n"+
+				"  type=\"plan_response\" 的审批结果后再继续执行。",
 			name, role, lead, workdir,
 		)},
 	}
@@ -65,12 +72,17 @@ func newTeammateLoop(
 	}
 
 	// Build restricted tool registry for the teammate.
+	// Includes protocol tools: shutdown_response (响应关机请求) and
+	// plan_request (提交计划审批). Excludes shutdown_request and plan_response
+	// which are lead-only.
 	tl.toolReg = tools.NewRegistry(
 		tools.BashTool{},
 		&tools.ReadFileTool{Workdir: workdir},
 		&tools.WriteFileTool{Workdir: workdir},
 		&tools.EditFileTool{Workdir: workdir},
 		&teammateSendTool{loop: tl},
+		&ShutdownResponseTool{loop: tl},
+		&PlanRequestTool{Mgr: mgr, SenderName: name},
 	)
 
 	return tl
@@ -142,8 +154,15 @@ func (t *teammateLoop) drainInbox() {
 		var b strings.Builder
 		b.WriteString("<team-inbox>\n")
 		for _, msg := range inbox {
-			b.WriteString(fmt.Sprintf("  <message from=%q type=%q>%s</message>\n",
-				msg.From, msg.Type, msg.Content))
+			// 协议消息包含更多属性便于 LLM 理解上下文
+			attrs := fmt.Sprintf("from=%q type=%q", msg.From, msg.Type)
+			if msg.RequestID != "" {
+				attrs += fmt.Sprintf(" request_id=%q", msg.RequestID)
+			}
+			if msg.Approve != nil {
+				attrs += fmt.Sprintf(" approve=%v", *msg.Approve)
+			}
+			b.WriteString(fmt.Sprintf("  <message %s>%s</message>\n", attrs, msg.Content))
 		}
 		b.WriteString("</team-inbox>")
 		t.messages = append(t.messages, anthropic.NewBetaUserMessage(

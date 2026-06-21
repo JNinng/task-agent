@@ -115,9 +115,11 @@ func New() (*Agent, error) {
 			"Use background_bash for long-running commands (npm install, pytest, etc.). "+
 			"Results are automatically delivered to you when they complete.\n\n"+
 			"Agent team:\n"+
-			"  - team_spawn - create a persistent teammate with a name, role, and initial task\n"+
-			"  - team_send   - send a message to a teammate (or 'all' to broadcast)\n"+
-			"  - team_inbox  - emergency-only; results auto-inject, do NOT poll\n"+
+			"  - team_spawn              - create a persistent teammate with a name, role, and initial task\n"+
+			"  - team_send                - send a message to a teammate (or 'all' to broadcast)\n"+
+			"  - team_inbox               - emergency-only; results auto-inject, do NOT poll\n"+
+			"  - team_shutdown_request    - gracefully request a teammate to shut down (handshake)\n"+
+			"  - team_plan_response       - approve or reject a teammate's submitted plan\n"+
 			"Teammates run independently. CRITICAL RULES:\n"+
 			"1. SPAWN FIRST — no bash/read_file/listing before spawn.\n"+
 			"   The teammate explores. You delegate. Example: user says 'run tests'\n"+
@@ -127,6 +129,10 @@ func New() (*Agent, error) {
 			"   Do not say 'still waiting' or 'checking progress'. Wait silently.\n"+
 			"3. NEVER run the same command the teammate is running (no duplicate bash).\n"+
 			"4. When a teammate's result arrives, report it to the user naturally.\n"+
+			"5. To stop a teammate, use team_shutdown_request (graceful handshake) —\n"+
+			"   the teammate will finish current work before exiting.\n"+
+			"6. When <team-inbox> contains a type=\"plan_request\" message,\n"+
+			"   review the plan and use team_plan_response to approve/reject.\n"+
 			"Use /team to view the roster.",
 		cwd,
 	))
@@ -181,6 +187,8 @@ func New() (*Agent, error) {
 		&team.SpawnTool{Mgr: teamMgr},
 		&team.SendTool{Mgr: teamMgr, SenderName: "lead"},
 		&team.TeamInboxTool{Mgr: teamMgr, ReaderName: "lead"},
+		&team.ShutdownRequestTool{Mgr: teamMgr},
+		&team.PlanResponseTool{Mgr: teamMgr},
 		tools.NewCompactTool(func() (string, error) {
 			if compactTrigger == nil {
 				return "", fmt.Errorf("compact not initialized")
