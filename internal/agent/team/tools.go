@@ -517,3 +517,35 @@ func (t *PlanResponseTool) Execute(_ context.Context, input json.RawMessage) ([]
 		{OfText: &anthropic.BetaTextBlockParam{Text: result}},
 	}, nil
 }
+
+// ── IdleTool (teammate) ──────────────────────────────────────────────
+
+// IdleTool 队友用来主动进入空闲状态。
+// 当队友完成当前工作且没有更多任务时调用此工具，
+// 进入 IDLE 阶段等待新消息或自动认领任务。
+type IdleTool struct {
+	loop *teammateLoop
+}
+
+func (t *IdleTool) Name() string { return "idle" }
+
+func (t *IdleTool) Description() string {
+	return "完成当前工作后调用此工具进入空闲状态。" +
+		"在空闲状态下，系统会自动检查收件箱和任务看板，" +
+		"如果有新消息或可认领的任务会自动唤醒你。" +
+		"如果 60 秒内没有任何事情，你会自动关机退出。"
+}
+
+func (t *IdleTool) InputSchema() anthropic.BetaToolInputSchemaParam {
+	return anthropic.BetaToolInputSchemaParam{
+		Properties: map[string]any{},
+		Required:   []string{},
+	}
+}
+
+func (t *IdleTool) Execute(_ context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
+	t.loop.idleRequested = true
+	return []anthropic.BetaToolResultBlockParamContentUnion{
+		{OfText: &anthropic.BetaTextBlockParam{Text: "进入空闲状态。等待新消息或可认领任务..."}},
+	}, nil
+}
