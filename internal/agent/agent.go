@@ -1,4 +1,4 @@
-package agent
+﻿package agent
 
 import (
 	"encoding/json"
@@ -129,10 +129,14 @@ func New() (*Agent, error) {
 			"   Do not say 'still waiting' or 'checking progress'. Wait silently.\n"+
 			"3. NEVER run the same command the teammate is running (no duplicate bash).\n"+
 			"4. When a teammate's result arrives, report it to the user naturally.\n"+
-			"5. To stop a teammate, use team_shutdown_request (graceful handshake) —\n"+
-			"   the teammate will finish current work before exiting.\n"+
-			"6. When <team-inbox> contains a type=\"plan_request\" message,\n"+
-			"   review the plan and use team_plan_response to approve/reject.\n"+
+			"5. Shutdown protocol: use team_shutdown_request to gracefully stop a teammate.\n"+
+			"   The teammate may approve (finish work → exit) or reject (continue working).\n"+
+			"   Wait for a type=\"shutdown_response\" message in <team-inbox> to confirm the\n"+
+			"   result — the request_id in the response matches the one you sent.\n"+
+			"6. Plan approval protocol: when <team-inbox> contains a type=\"plan_request\"\n"+
+			"   message, review the plan and use team_plan_response with the message's\n"+
+			"   request_id to approve (teammate proceeds) or reject with feedback (teammate\n"+
+			"   abandons). The teammate will wait for your response before acting.\n"+
 			"Use /team to view the roster.",
 		cwd,
 	))

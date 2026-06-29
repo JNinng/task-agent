@@ -327,17 +327,14 @@ func (r *Runner) injectTeamInbox(ch chan<- tools.Event) {
 		return
 	}
 
-	var b strings.Builder
-	b.WriteString("<team-inbox>\n")
-	for _, msg := range msgs {
-		b.WriteString(fmt.Sprintf("  <message from=%q type=%q>%s</message>\n",
-			msg.From, msg.Type, msg.Content))
+	block := team.FormatInboxMessages(msgs)
+	if block == "" {
+		return
 	}
-	b.WriteString("</team-inbox>")
 
 	r.messages = append(r.messages, anthropic.NewBetaUserMessage(
 		anthropic.BetaContentBlockParamUnion{
-			OfText: &anthropic.BetaTextBlockParam{Text: b.String()},
+			OfText: &anthropic.BetaTextBlockParam{Text: block},
 		}))
 }
 

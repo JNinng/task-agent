@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -151,23 +150,13 @@ func (t *teammateLoop) drainInbox() {
 			return
 		}
 
-		var b strings.Builder
-		b.WriteString("<team-inbox>\n")
-		for _, msg := range inbox {
-			// 协议消息包含更多属性便于 LLM 理解上下文
-			attrs := fmt.Sprintf("from=%q type=%q", msg.From, msg.Type)
-			if msg.RequestID != "" {
-				attrs += fmt.Sprintf(" request_id=%q", msg.RequestID)
-			}
-			if msg.Approve != nil {
-				attrs += fmt.Sprintf(" approve=%v", *msg.Approve)
-			}
-			b.WriteString(fmt.Sprintf("  <message %s>%s</message>\n", attrs, msg.Content))
+		block := FormatInboxMessages(inbox)
+		if block == "" {
+			return
 		}
-		b.WriteString("</team-inbox>")
 		t.messages = append(t.messages, anthropic.NewBetaUserMessage(
 			anthropic.BetaContentBlockParamUnion{
-				OfText: &anthropic.BetaTextBlockParam{Text: b.String()},
+				OfText: &anthropic.BetaTextBlockParam{Text: block},
 			}))
 
 		t.processLoop()
