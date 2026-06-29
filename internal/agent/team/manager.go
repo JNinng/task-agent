@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+
+	"task-agent/internal/agent/tasks"
 )
 
 // TeammateManager maintains the team roster, spawns/shuts down teammates,
@@ -21,6 +23,7 @@ type TeammateManager struct {
 	client  *anthropic.Client
 	model   anthropic.Model
 	workdir string
+	taskMgr *tasks.Manager // 任务看板访问（可为 nil，表示未注入）
 	mu      sync.Mutex
 	loops   map[string]*teammateLoop // name -> running loop
 
@@ -32,7 +35,7 @@ type TeammateManager struct {
 // NewManager initializes the team directory and loads the existing roster
 // from config.json. If no config exists a default one is created with the
 // given lead name.
-func NewManager(client *anthropic.Client, model anthropic.Model, workdir, teamDir, leadName string) (*TeammateManager, error) {
+func NewManager(client *anthropic.Client, model anthropic.Model, workdir, teamDir, leadName string, taskMgr *tasks.Manager) (*TeammateManager, error) {
 	if err := os.MkdirAll(teamDir, 0755); err != nil {
 		return nil, fmt.Errorf("team manager: %w", err)
 	}
@@ -48,6 +51,7 @@ func NewManager(client *anthropic.Client, model anthropic.Model, workdir, teamDi
 		client:           client,
 		model:            model,
 		workdir:          workdir,
+		taskMgr:          taskMgr,
 		loops:            make(map[string]*teammateLoop),
 		shutdownRequests: make(map[string]*ShutdownRequest),
 		planRequests:     make(map[string]*PlanRequest),
@@ -446,4 +450,26 @@ func (m *TeammateManager) saveConfig() {
 		return
 	}
 	_ = os.WriteFile(m.configPath(), data, 0644)
+}
+
+// ScanUnclaimedTasks 扫描任务看板，返回所有可认领的任务。
+// 可认领条件：status == "pending" && owner == "" && len(blockedBy) == 0
+// 当 taskMgr 为 nil 时返回空列表。
+func (m *TeammateManager) ScanUnclaimedTasks() ([]tasks.Task, error) {
+	if m.taskMgr == nil {
+		return nil, nil
+	}
+
+	all, err := m.taskMgr.List(tasks.ListFilter{ExcludeDeleted: true})
+	if err != nil {
+		return nil, fmt.Errorf("scan unclaimed: %w", err)
+	}
+
+	var unclaimed []tasks.Task
+	for _, t := range all {
+		if t.Status == "pending" && t.Owner == "" && len(t.BlockedBy) == 0 {
+			unclaimed = append(unclaimed, t)
+		}
+	}
+	return unclaimed, nil
 }

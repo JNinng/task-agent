@@ -8,6 +8,8 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+
+	"task-agent/internal/agent/tasks"
 )
 
 func newTestManager(t *testing.T) *TeammateManager {
@@ -24,7 +26,7 @@ func newTestManager(t *testing.T) *TeammateManager {
 	)
 
 	teamDir := filepath.Join(t.TempDir(), "team")
-	m, err := NewManager(&c, "claude-sonnet-4-6", t.TempDir(), teamDir, "lead")
+	m, err := NewManager(&c, "claude-sonnet-4-6", t.TempDir(), teamDir, "lead", nil)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
@@ -177,14 +179,14 @@ func TestConfigPersistence(t *testing.T) {
 	)
 
 	// Create first manager and spawn a teammate.
-	m1, err := NewManager(&c, "claude-sonnet-4-6", t.TempDir(), teamDir, "lead")
+	m1, err := NewManager(&c, "claude-sonnet-4-6", t.TempDir(), teamDir, "lead", nil)
 	if err != nil {
 		t.Fatalf("NewManager 1: %v", err)
 	}
 	m1.Spawn("alice", "coder", "task")
 
 	// Create second manager — should load config from disk.
-	m2, err := NewManager(&c, "claude-sonnet-4-6", t.TempDir(), teamDir, "lead")
+	m2, err := NewManager(&c, "claude-sonnet-4-6", t.TempDir(), teamDir, "lead", nil)
 	if err != nil {
 		t.Fatalf("NewManager 2: %v", err)
 	}
@@ -198,5 +200,73 @@ func TestConfigPersistence(t *testing.T) {
 	}
 	if roster[0].Role != "coder" {
 		t.Errorf("expected coder, got %q", roster[0].Role)
+	}
+}
+
+func TestScanUnclaimedTasks(t *testing.T) {
+	// 创建真实的 tasks.Manager
+	tmpDir := t.TempDir()
+	taskMgr, err := tasks.NewManager(tmpDir, "test-list")
+	if err != nil {
+		t.Fatalf("tasks.NewManager: %v", err)
+	}
+
+	// 创建 team manager，注入 taskMgr
+	teamDir := filepath.Join(t.TempDir(), "team")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	c := anthropic.NewClient(
+		option.WithAPIKey("test-key"),
+		option.WithBaseURL(srv.URL),
+	)
+	m, err := NewManager(&c, "claude-sonnet-4-6", t.TempDir(), teamDir, "lead", taskMgr)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	// 创建测试任务
+	t1, _ := taskMgr.Create("pending+unowned+unblocked", "应该被扫到")
+	// t1 默认 status=pending, owner="", blockedBy=[]
+
+	t2, _ := taskMgr.Create("pending+owned", "不应该被扫到")
+	owner := "alice"
+	inProgress := "in_progress"
+	taskMgr.Update(t2.ID, tasks.TaskUpdate{Owner: &owner, Status: &inProgress})
+
+	t3, _ := taskMgr.Create("pending+blocked", "不应该被扫到")
+	taskMgr.Update(t3.ID, tasks.TaskUpdate{AddBlockedBy: []string{t1.ID}})
+
+	t4, _ := taskMgr.Create("completed", "不应该被扫到")
+	completedStatus := "completed"
+	taskMgr.Update(t4.ID, tasks.TaskUpdate{Status: &completedStatus})
+
+	// 扫描
+	unclaimed, err := m.ScanUnclaimedTasks()
+	if err != nil {
+		t.Fatalf("ScanUnclaimedTasks: %v", err)
+	}
+
+	if len(unclaimed) != 1 {
+		t.Fatalf("expected 1 unclaimed task, got %d", len(unclaimed))
+	}
+	if unclaimed[0].ID != t1.ID {
+		t.Errorf("expected task %s, got %s", t1.ID, unclaimed[0].ID)
+	}
+	if unclaimed[0].Subject != "pending+unowned+unblocked" {
+		t.Errorf("unexpected subject: %s", unclaimed[0].Subject)
+	}
+}
+
+func TestScanUnclaimedTasksWithNilTaskMgr(t *testing.T) {
+	m := newTestManager(t) // taskMgr is nil
+
+	unclaimed, err := m.ScanUnclaimedTasks()
+	if err != nil {
+		t.Fatalf("ScanUnclaimedTasks with nil taskMgr: %v", err)
+	}
+	if len(unclaimed) != 0 {
+		t.Errorf("expected 0 tasks with nil taskMgr, got %d", len(unclaimed))
 	}
 }

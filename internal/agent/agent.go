@@ -89,7 +89,7 @@ func New() (*Agent, error) {
 
 	// --- Agent team manager ---
 	teamDir := TeamDir(DataDir())
-	teamMgr, err := team.NewManager(&client, anthropic.Model(modelID), cwd, teamDir, "lead")
+	teamMgr, err := team.NewManager(&client, anthropic.Model(modelID), cwd, teamDir, "lead", taskMgr)
 	if err != nil {
 		return nil, fmt.Errorf("team manager: %w", err)
 	}

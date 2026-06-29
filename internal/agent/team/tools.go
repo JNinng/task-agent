@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+
+	"task-agent/internal/agent/tasks"
 )
 
 // ── TeamSpawnTool ───────────────────────────────────────────────────
@@ -513,6 +515,98 @@ func (t *PlanResponseTool) Execute(_ context.Context, input json.RawMessage) ([]
 	if args.Feedback != "" {
 		result += fmt.Sprintf(" 反馈: %s", args.Feedback)
 	}
+	return []anthropic.BetaToolResultBlockParamContentUnion{
+		{OfText: &anthropic.BetaTextBlockParam{Text: result}},
+	}, nil
+}
+
+// ── IdleTool (teammate) ──────────────────────────────────────────────
+
+// IdleTool 队友用来主动进入空闲状态。
+// 当队友完成当前工作且没有更多任务时调用此工具，
+// 进入 IDLE 阶段等待新消息或自动认领任务。
+type IdleTool struct {
+	loop *teammateLoop
+}
+
+func (t *IdleTool) Name() string { return "idle" }
+
+func (t *IdleTool) Description() string {
+	return "完成当前工作后调用此工具进入空闲状态。" +
+		"在空闲状态下，系统会自动检查收件箱和任务看板，" +
+		"如果有新消息或可认领的任务会自动唤醒你。" +
+		"如果 60 秒内没有任何事情，你会自动关机退出。"
+}
+
+func (t *IdleTool) InputSchema() anthropic.BetaToolInputSchemaParam {
+	return anthropic.BetaToolInputSchemaParam{
+		Properties: map[string]any{},
+		Required:   []string{},
+	}
+}
+
+func (t *IdleTool) Execute(_ context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
+	t.loop.idleRequested = true
+	return []anthropic.BetaToolResultBlockParamContentUnion{
+		{OfText: &anthropic.BetaTextBlockParam{Text: "进入空闲状态。等待新消息或可认领任务..."}},
+	}, nil
+}
+
+// ── ClaimTaskTool (teammate) ─────────────────────────────────────────
+
+// ClaimTaskTool 队友用来手动认领任务看板中的任务。
+// 系统会在 IDLE 阶段自动认领未分配任务，此工具保留给 LLM
+// 在工作阶段手动认领特定任务的需求。
+type ClaimTaskTool struct {
+	loop *teammateLoop
+}
+
+func (t *ClaimTaskTool) Name() string { return "claim_task" }
+
+func (t *ClaimTaskTool) Description() string {
+	return "手动认领任务看板中未分配的任务。系统会在空闲时自动认领，" +
+		"此工具用于在工作阶段手动认领特定任务。"
+}
+
+func (t *ClaimTaskTool) InputSchema() anthropic.BetaToolInputSchemaParam {
+	return anthropic.BetaToolInputSchemaParam{
+		Properties: map[string]any{
+			"task_id": map[string]any{
+				"type":        "string",
+				"description": "要认领的任务 ID。",
+			},
+		},
+		Required: []string{"task_id"},
+	}
+}
+
+func (t *ClaimTaskTool) Execute(_ context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
+	var args struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return nil, fmt.Errorf("claim_task: %w", err)
+	}
+	if args.TaskID == "" {
+		return nil, fmt.Errorf("claim_task: task_id 是必填项")
+	}
+
+	mgr := t.loop.mgr
+	if mgr.taskMgr == nil {
+		return nil, fmt.Errorf("claim_task: 任务看板不可用")
+	}
+
+	owner := t.loop.name
+	inProgress := "in_progress"
+	_, err := mgr.taskMgr.Update(args.TaskID, tasks.TaskUpdate{
+		Owner:  &owner,
+		Status: &inProgress,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("claim_task: %w", err)
+	}
+
+	result := fmt.Sprintf("已认领任务 %s（owner=%s, status=in_progress）", args.TaskID, owner)
 	return []anthropic.BetaToolResultBlockParamContentUnion{
 		{OfText: &anthropic.BetaTextBlockParam{Text: result}},
 	}, nil

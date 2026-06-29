@@ -7,10 +7,19 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"task-agent/internal/agent/tasks"
 	"task-agent/internal/agent/tools"
 )
 
 const maxTeammateTurns = 30
+
+// IDLE 轮询常量。作为结构体字段默认值而非包级常量，
+// 方便测试时替换为更短的间隔。
+const (
+	defaultIdlePollInterval = 5 * time.Second
+	defaultIdleTimeout      = 60 * time.Second
+	defaultIdleMaxIter      = 12
+)
 
 // teammateLoop runs a full agent loop for one teammate in a goroutine.
 // It processes an initial prompt, then waits on a wake channel for new
@@ -28,6 +37,12 @@ type teammateLoop struct {
 	quitCh   chan struct{}
 	toolReg  *tools.Registry // restricted tool set
 	workdir  string
+
+	// IDLE / 自组织字段
+	idleRequested    bool          // idle 工具设置此标志，processLoop 检测后退出 WORK
+	idlePollInterval time.Duration // IDLE 轮询间隔（默认 5s）
+	idleTimeout      time.Duration // IDLE 超时（默认 60s）
+	idleMaxIter      int           // IDLE 最大轮询次数（默认 12）
 }
 
 // newTeammateLoop creates a teammate loop wired with a restricted tool set.
@@ -68,6 +83,10 @@ func newTeammateLoop(
 		wakeCh:  make(chan struct{}, 1), // buffered so send doesn't block
 		quitCh:  make(chan struct{}),
 		workdir: workdir,
+
+		idlePollInterval: defaultIdlePollInterval,
+		idleTimeout:      defaultIdleTimeout,
+		idleMaxIter:      defaultIdleMaxIter,
 	}
 
 	// Build restricted tool registry for the teammate.
@@ -82,6 +101,8 @@ func newTeammateLoop(
 		&teammateSendTool{loop: tl},
 		&ShutdownResponseTool{loop: tl},
 		&PlanRequestTool{Mgr: mgr, SenderName: name},
+		&IdleTool{loop: tl},
+		&ClaimTaskTool{loop: tl},
 	)
 
 	return tl
@@ -101,13 +122,19 @@ func (t *teammateLoop) shutdown() {
 	close(t.quitCh)
 }
 
-// run is the main loop. It processes the initial prompt, drains any
-// messages that arrived during processing, then waits for wake signals.
-// When woken, it keeps draining the inbox until empty before going idle,
-// which avoids lost messages when wake signals are dropped (channel
-// buffer = 1, non-blocking send).
+// run 是队友的主循环。处理初始任务后进入 WORK↔IDLE 自组织循环。
+//
+// 生命周期：
+//
+//	spawn → WORK ⇄ IDLE → SHUTDOWN
+//
+// WORK: LLM 调用工具直到 stop_reason != tool_use 或主动调用 idle
+// IDLE: 每 5s 轮询（最长 60s），检查收件箱 → 任务看板
+//
+// drainInbox 内部会调用 processLoop 处理每批收件箱消息，
+// 因此 run() 只需在 IDLE 唤醒后显式调用 processLoop。
 func (t *teammateLoop) run(initialPrompt string) {
-	// Phase 1: process the initial spawn prompt.
+	// Phase 1: WORK — 处理初始 spawn prompt。
 	t.messages = []anthropic.BetaMessageParam{
 		anthropic.NewBetaUserMessage(
 			anthropic.BetaContentBlockParamUnion{
@@ -116,26 +143,85 @@ func (t *teammateLoop) run(initialPrompt string) {
 	}
 	t.processLoop()
 
-	// Drain any messages that arrived while we were processing the
-	// initial task (wake signals may have been dropped).
-	t.drainInbox()
-
-	// Phase 2: wait for wake signals, then drain the inbox
-	// completely each time. This is robust against dropped wake
-	// signals: even if a signal is lost, the next successful wake
-	// will process all accumulated messages.
-	t.mgr.setStatus(t.name, StatusIdle)
-
+	// Phase 2: WORK ↔ IDLE 自组织循环
 	for {
+		// 排空积累的收件箱消息（drainInbox 内部对每批消息调用 processLoop，
+		// 且会循环直到收件箱完全为空，确保上一轮 WORK 期间到达的消息都被处理）
+		t.drainInbox()
+
+		// 进入 IDLE
+		t.mgr.setStatus(t.name, StatusIdle)
+		hasWork := t.idlePoll()
+
+		if !hasWork {
+			// 空闲超时或收到 quit 信号 → 优雅关机
+			t.sendToLead("idle timeout, shutting down")
+
+			// 从 manager 的 loops map 中删除自己
+			t.mgr.mu.Lock()
+			delete(t.mgr.loops, t.name)
+			t.mgr.mu.Unlock()
+
+			// 更新 roster 状态
+			t.mgr.setStatus(t.name, StatusShutdown)
+			return
+		}
+
+		// 有工作要做 — 恢复 WORK
+		t.mgr.setStatus(t.name, StatusWorking)
+
+		// 防御性身份检查：IDLE → WORK 转换时确保身份完整
+		if len(t.messages) <= 3 {
+			t.injectIdentity()
+		}
+
+		// 重置 idle 标志
+		t.idleRequested = false
+
+		t.processLoop()
+	}
+}
+
+// idlePoll 在 IDLE 阶段轮询，检查是否有工作可做。
+// 返回值：hasWork — true 表示有工作要做，false 表示应关机。
+//
+// 轮询逻辑：
+//  1. 监听 quitCh（支持即时中断）→ return false
+//  2. sleep idlePollInterval
+//  3. 检查收件箱 → 有消息则注入 <team-inbox> → return true
+//  4. 扫描任务看板 → 有未认领则自动认领并注入 → return true
+//  5. 最多 idleMaxIter 轮后超时 → return false
+func (t *teammateLoop) idlePoll() bool {
+	for i := 0; i < t.idleMaxIter; i++ {
+		// 可被 quitCh 中断的 sleep
 		select {
 		case <-t.quitCh:
-			return
-		case <-t.wakeCh:
-			t.mgr.setStatus(t.name, StatusWorking)
-			t.drainInbox()
-			t.mgr.setStatus(t.name, StatusIdle)
+			return false
+		case <-time.After(t.idlePollInterval):
+		}
+
+		// 检查收件箱
+		inbox, err := t.mgr.bus.ReadInbox(t.name)
+		if err == nil && len(inbox) > 0 {
+			block := FormatInboxMessages(inbox)
+			if block != "" {
+				t.messages = append(t.messages, anthropic.NewBetaUserMessage(
+					anthropic.BetaContentBlockParamUnion{
+						OfText: &anthropic.BetaTextBlockParam{Text: block},
+					},
+				))
+			}
+			return true
+		}
+
+		// 检查任务看板
+		if t.claimAndInject() {
+			return true
 		}
 	}
+
+	// 超时 — 无事可做
+	return false
 }
 
 // drainInbox repeatedly reads the teammate's inbox and processes all
@@ -178,6 +264,11 @@ func (t *teammateLoop) processLoop() {
 			t.messages = append(t.messages[:1], t.messages[len(t.messages)-keep:]...)
 		}
 
+		// 截断后若消息过少，重注入身份信息
+		if len(t.messages) <= 3 {
+			t.injectIdentity()
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		resp, err := t.client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
 			Model:     t.model,
@@ -205,6 +296,11 @@ func (t *teammateLoop) processLoop() {
 					Name:  tu.Name,
 					Input: json.RawMessage(inputBytes),
 				})
+
+				// 检测 idle 工具调用 — 标记后 processLoop 退出 WORK
+				if tu.Name == "idle" {
+					t.idleRequested = true
+				}
 			} else if block.Type == "text" {
 				// Accumulate text from this response; only the last
 				// turn's text matters for the final summary.
@@ -250,6 +346,11 @@ func (t *teammateLoop) processLoop() {
 			})
 		}
 		t.messages = append(t.messages, anthropic.NewBetaUserMessage(contentBlocks...))
+
+		// 如果调用了 idle 工具，退出 WORK 进入 IDLE
+		if t.idleRequested {
+			return
+		}
 	}
 
 	// Turn limit reached — send partial summary to lead.
@@ -265,4 +366,84 @@ func (t *teammateLoop) sendToLead(content string) {
 		Content:   content,
 		Timestamp: time.Now().Unix(),
 	})
+}
+
+// injectIdentity 在消息历史开头插入身份声明，确保压缩后的上下文
+// 仍然包含队友的名称、角色和团队归属信息。
+//
+// 插入格式：
+//
+//	user: <identity>You are 'name', role: role, team lead: lead. Continue...</identity>
+//	assistant: I am name. Continuing.
+func (t *teammateLoop) injectIdentity() {
+	identityBlock := anthropic.BetaContentBlockParamUnion{
+		OfText: &anthropic.BetaTextBlockParam{
+			Text: fmt.Sprintf(
+				"<identity>You are '%s', role: %s, team lead: %s. "+
+					"Continue with your assigned work.</identity>",
+				t.name, t.role, t.mgr.config.Lead,
+			),
+		},
+	}
+	ackBlock := anthropic.BetaContentBlockParamUnion{
+		OfText: &anthropic.BetaTextBlockParam{
+			Text: fmt.Sprintf("I am %s. Continuing.", t.name),
+		},
+	}
+
+	// 在消息列表开头插入身份声明对
+	t.messages = append(
+		[]anthropic.BetaMessageParam{
+			{Role: "user", Content: []anthropic.BetaContentBlockParamUnion{identityBlock}},
+			{Role: "assistant", Content: []anthropic.BetaContentBlockParamUnion{ackBlock}},
+		},
+		t.messages...,
+	)
+}
+
+// claimAndInject 扫描任务看板，认领第一个未分配任务，
+// 并将 <auto-claimed> 块注入消息历史。返回 true 表示成功认领。
+func (t *teammateLoop) claimAndInject() bool {
+	if t.mgr.taskMgr == nil {
+		return false
+	}
+
+	unclaimed, err := t.mgr.ScanUnclaimedTasks()
+	if err != nil || len(unclaimed) == 0 {
+		return false
+	}
+
+	// 认领第一个未分配任务
+	target := unclaimed[0]
+	owner := t.name
+	inProgress := "in_progress"
+	_, err = t.mgr.taskMgr.Update(target.ID, tasks.TaskUpdate{
+		Owner:  &owner,
+		Status: &inProgress,
+	})
+	if err != nil {
+		return false
+	}
+
+	// 注入 <auto-claimed> 块到消息历史
+	claimBlock := fmt.Sprintf(
+		"<auto-claimed>\n"+
+			"  已自动认领任务:\n"+
+			"  ID: %s\n"+
+			"  主题: %s\n"+
+			"  描述: %s\n"+
+			"  Owner: %s (我)\n"+
+			"  Status: in_progress\n"+
+			"</auto-claimed>\n\n"+
+			"请立即开始执行此任务。",
+		target.ID, target.Subject, target.Description, t.name,
+	)
+
+	t.messages = append(t.messages, anthropic.NewBetaUserMessage(
+		anthropic.BetaContentBlockParamUnion{
+			OfText: &anthropic.BetaTextBlockParam{Text: claimBlock},
+		},
+	))
+
+	return true
 }
