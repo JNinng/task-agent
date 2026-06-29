@@ -102,6 +102,8 @@ func newTeammateLoop(
 		&teammateSendTool{loop: tl},
 		&ShutdownResponseTool{loop: tl},
 		&PlanRequestTool{Mgr: mgr, SenderName: name},
+		&IdleTool{loop: tl},
+		&ClaimTaskTool{loop: tl},
 	)
 
 	return tl
