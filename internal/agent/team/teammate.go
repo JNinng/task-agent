@@ -121,13 +121,19 @@ func (t *teammateLoop) shutdown() {
 	close(t.quitCh)
 }
 
-// run is the main loop. It processes the initial prompt, drains any
-// messages that arrived during processing, then waits for wake signals.
-// When woken, it keeps draining the inbox until empty before going idle,
-// which avoids lost messages when wake signals are dropped (channel
-// buffer = 1, non-blocking send).
+// run 是队友的主循环。处理初始任务后进入 WORK↔IDLE 自组织循环。
+//
+// 生命周期：
+//
+//	spawn → WORK ⇄ IDLE → SHUTDOWN
+//
+// WORK: LLM 调用工具直到 stop_reason != tool_use 或主动调用 idle
+// IDLE: 每 5s 轮询（最长 60s），检查收件箱 → 任务看板
+//
+// drainInbox 内部会调用 processLoop 处理每批收件箱消息，
+// 因此 run() 只需在 IDLE 唤醒后显式调用 processLoop。
 func (t *teammateLoop) run(initialPrompt string) {
-	// Phase 1: process the initial spawn prompt.
+	// Phase 1: WORK — 处理初始 spawn prompt。
 	t.messages = []anthropic.BetaMessageParam{
 		anthropic.NewBetaUserMessage(
 			anthropic.BetaContentBlockParamUnion{
@@ -136,26 +142,85 @@ func (t *teammateLoop) run(initialPrompt string) {
 	}
 	t.processLoop()
 
-	// Drain any messages that arrived while we were processing the
-	// initial task (wake signals may have been dropped).
-	t.drainInbox()
-
-	// Phase 2: wait for wake signals, then drain the inbox
-	// completely each time. This is robust against dropped wake
-	// signals: even if a signal is lost, the next successful wake
-	// will process all accumulated messages.
-	t.mgr.setStatus(t.name, StatusIdle)
-
+	// Phase 2: WORK ↔ IDLE 自组织循环
 	for {
+		// 排空积累的收件箱消息（drainInbox 内部对每批消息调用 processLoop，
+		// 且会循环直到收件箱完全为空，确保上一轮 WORK 期间到达的消息都被处理）
+		t.drainInbox()
+
+		// 进入 IDLE
+		t.mgr.setStatus(t.name, StatusIdle)
+		hasWork := t.idlePoll()
+
+		if !hasWork {
+			// 空闲超时或收到 quit 信号 → 优雅关机
+			t.sendToLead("idle timeout, shutting down")
+
+			// 从 manager 的 loops map 中删除自己
+			t.mgr.mu.Lock()
+			delete(t.mgr.loops, t.name)
+			t.mgr.mu.Unlock()
+
+			// 更新 roster 状态
+			t.mgr.setStatus(t.name, StatusShutdown)
+			return
+		}
+
+		// 有工作要做 — 恢复 WORK
+		t.mgr.setStatus(t.name, StatusWorking)
+
+		// 防御性身份检查：IDLE → WORK 转换时确保身份完整
+		if len(t.messages) <= 3 {
+			t.injectIdentity()
+		}
+
+		// 重置 idle 标志
+		t.idleRequested = false
+
+		t.processLoop()
+	}
+}
+
+// idlePoll 在 IDLE 阶段轮询，检查是否有工作可做。
+// 返回值：hasWork — true 表示有工作要做，false 表示应关机。
+//
+// 轮询逻辑：
+//  1. 监听 quitCh（支持即时中断）→ return false
+//  2. sleep idlePollInterval
+//  3. 检查收件箱 → 有消息则注入 <team-inbox> → return true
+//  4. 扫描任务看板 → 有未认领则自动认领并注入 → return true
+//  5. 最多 idleMaxIter 轮后超时 → return false
+func (t *teammateLoop) idlePoll() bool {
+	for i := 0; i < t.idleMaxIter; i++ {
+		// 可被 quitCh 中断的 sleep
 		select {
 		case <-t.quitCh:
-			return
-		case <-t.wakeCh:
-			t.mgr.setStatus(t.name, StatusWorking)
-			t.drainInbox()
-			t.mgr.setStatus(t.name, StatusIdle)
+			return false
+		case <-time.After(t.idlePollInterval):
+		}
+
+		// 检查收件箱
+		inbox, err := t.mgr.bus.ReadInbox(t.name)
+		if err == nil && len(inbox) > 0 {
+			block := FormatInboxMessages(inbox)
+			if block != "" {
+				t.messages = append(t.messages, anthropic.NewBetaUserMessage(
+					anthropic.BetaContentBlockParamUnion{
+						OfText: &anthropic.BetaTextBlockParam{Text: block},
+					},
+				))
+			}
+			return true
+		}
+
+		// 检查任务看板
+		if t.claimAndInject() {
+			return true
 		}
 	}
+
+	// 超时 — 无事可做
+	return false
 }
 
 // drainInbox repeatedly reads the teammate's inbox and processes all

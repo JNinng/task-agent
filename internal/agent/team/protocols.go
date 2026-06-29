@@ -3,6 +3,7 @@ package team
 import (
 	"crypto/rand"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -122,4 +123,32 @@ func (m *TeammateManager) getPlanRequest(requestID string) *PlanRequest {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.planRequests[requestID]
+}
+
+// FormatInboxMessages 将收件箱消息渲染为 <team-inbox> XML 块。
+// 协议消息（shutdown_request/response, plan_request/response）会包含
+// request_id 和 approve 属性，确保 lead 和 teammate 都能正确引用。
+// 当 msgs 为空时返回空字符串。
+//
+// 此函数是 runner.go:injectTeamInbox 和 teammate.go:drainInbox 的
+// 共享渲染逻辑，保证两边始终同步。
+func FormatInboxMessages(msgs []Message) string {
+	if len(msgs) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("<team-inbox>\n")
+	for _, msg := range msgs {
+		attrs := fmt.Sprintf("from=%q type=%q", msg.From, msg.Type)
+		if msg.RequestID != "" {
+			attrs += fmt.Sprintf(" request_id=%q", msg.RequestID)
+		}
+		if msg.Approve != nil {
+			attrs += fmt.Sprintf(" approve=%v", *msg.Approve)
+		}
+		b.WriteString(fmt.Sprintf("  <message %s>%s</message>\n", attrs, msg.Content))
+	}
+	b.WriteString("</team-inbox>")
+	return b.String()
 }
