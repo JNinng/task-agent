@@ -273,6 +273,11 @@ func (t *teammateLoop) processLoop() {
 			t.messages = append(t.messages[:1], t.messages[len(t.messages)-keep:]...)
 		}
 
+		// 截断后若消息过少，重注入身份信息
+		if len(t.messages) <= 3 {
+			t.injectIdentity()
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		resp, err := t.client.Beta.Messages.New(ctx, anthropic.BetaMessageNewParams{
 			Model:     t.model,
@@ -300,6 +305,11 @@ func (t *teammateLoop) processLoop() {
 					Name:  tu.Name,
 					Input: json.RawMessage(inputBytes),
 				})
+
+				// 检测 idle 工具调用 — 标记后 processLoop 退出 WORK
+				if tu.Name == "idle" {
+					t.idleRequested = true
+				}
 			} else if block.Type == "text" {
 				// Accumulate text from this response; only the last
 				// turn's text matters for the final summary.
@@ -345,6 +355,11 @@ func (t *teammateLoop) processLoop() {
 			})
 		}
 		t.messages = append(t.messages, anthropic.NewBetaUserMessage(contentBlocks...))
+
+		// 如果调用了 idle 工具，退出 WORK 进入 IDLE
+		if t.idleRequested {
+			return
+		}
 	}
 
 	// Turn limit reached — send partial summary to lead.
