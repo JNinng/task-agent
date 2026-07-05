@@ -278,8 +278,9 @@ func (t *teammateSendTool) Execute(_ context.Context, input json.RawMessage) ([]
 
 // ── ShutdownRequestTool (lead) ────────────────────────────────────────
 
-// ShutdownRequestTool 向队友发起优雅关机请求。
-// Lead 使用此工具替代直接杀进程，让队友有机会完成当前工作后安全退出。
+// ShutdownRequestTool sends a graceful shutdown request to a teammate.
+// The lead uses this instead of killing the process, giving the teammate
+// a chance to finish current work and exit safely.
 type ShutdownRequestTool struct {
 	Mgr *TeammateManager
 }
@@ -287,9 +288,11 @@ type ShutdownRequestTool struct {
 func (t *ShutdownRequestTool) Name() string { return "team_shutdown_request" }
 
 func (t *ShutdownRequestTool) Description() string {
-	return "向队友发起优雅关机请求。队友会在完成当前工作后响应，比直接杀进程更安全。" +
-		"每个请求带唯一 request_id，队友通过 team_shutdown_response 引用同一 request_id 来批准或拒绝。" +
-		"关机请求发出后，结果会自动出现在你的 <team-inbox> 中。"
+	return "Send a graceful shutdown request to a teammate. The teammate responds after finishing " +
+		"current work — safer than killing the process. " +
+		"Each request has a unique request_id; the teammate references the same request_id via " +
+		"team_shutdown_response to approve or reject. " +
+		"Results auto-appear in your <team-inbox> after the request is sent."
 }
 
 func (t *ShutdownRequestTool) InputSchema() anthropic.BetaToolInputSchemaParam {
@@ -297,11 +300,11 @@ func (t *ShutdownRequestTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 		Properties: map[string]any{
 			"teammate": map[string]any{
 				"type":        "string",
-				"description": "目标队友名称。",
+				"description": "Target teammate name.",
 			},
 			"reason": map[string]any{
 				"type":        "string",
-				"description": "关机原因（可选）。",
+				"description": "Reason for shutdown (optional).",
 			},
 		},
 		Required: []string{"teammate"},
@@ -317,7 +320,7 @@ func (t *ShutdownRequestTool) Execute(_ context.Context, input json.RawMessage) 
 		return nil, fmt.Errorf("team_shutdown_request: %w", err)
 	}
 	if args.Teammate == "" {
-		return nil, fmt.Errorf("team_shutdown_request: 'teammate' 是必填项")
+		return nil, fmt.Errorf("team_shutdown_request: 'teammate' is required")
 	}
 
 	reqID, err := t.Mgr.RequestShutdown(args.Teammate, args.Reason)
@@ -325,7 +328,7 @@ func (t *ShutdownRequestTool) Execute(_ context.Context, input json.RawMessage) 
 		return nil, err
 	}
 
-	result := fmt.Sprintf("关机请求 %s 已发送给 %s (状态: pending)。等待队友响应...", reqID, args.Teammate)
+	result := fmt.Sprintf("Shutdown request %s sent to %s (status: pending). Waiting for teammate response...", reqID, args.Teammate)
 	return []anthropic.BetaToolResultBlockParamContentUnion{
 		{OfText: &anthropic.BetaTextBlockParam{Text: result}},
 	}, nil
@@ -333,8 +336,8 @@ func (t *ShutdownRequestTool) Execute(_ context.Context, input json.RawMessage) 
 
 // ── ShutdownResponseTool (teammate) ───────────────────────────────────
 
-// ShutdownResponseTool 队友用来响应 lead 的关机请求。
-// approve=true 时，工具内部会调用 Shutdown() 优雅退出。
+// ShutdownResponseTool is used by teammates to respond to the lead's shutdown request.
+// When approve=true, the tool internally calls Shutdown() for a graceful exit.
 type ShutdownResponseTool struct {
 	loop *teammateLoop
 }
@@ -342,9 +345,10 @@ type ShutdownResponseTool struct {
 func (t *ShutdownResponseTool) Name() string { return "team_shutdown_response" }
 
 func (t *ShutdownResponseTool) Description() string {
-	return "响应 lead 的关机请求。引用 shutdown_request 消息中的 request_id。" +
-		"如果当前工作可以安全停止，设置 approve: true 同意关机。" +
-		"如果正在执行关键操作需要继续，设置 approve: false 拒绝关机并说明原因。"
+	return "Respond to a shutdown request from the lead. Reference the request_id from the " +
+		"shutdown_request message. " +
+		"If current work can be safely stopped, set approve: true to accept shutdown. " +
+		"If performing critical work that must continue, set approve: false to reject and explain why."
 }
 
 func (t *ShutdownResponseTool) InputSchema() anthropic.BetaToolInputSchemaParam {
@@ -352,15 +356,16 @@ func (t *ShutdownResponseTool) InputSchema() anthropic.BetaToolInputSchemaParam 
 		Properties: map[string]any{
 			"request_id": map[string]any{
 				"type":        "string",
-				"description": "关机请求的 request_id，来自 <team-inbox> 中 shutdown_request 消息的属性。",
+				"description": "The request_id from the shutdown_request message in <team-inbox>.",
 			},
 			"approve": map[string]any{
-				"type":        "boolean",
-				"description": "true = 同意关机（完成当前工作后退出），false = 拒绝关机（继续工作）。",
+				"type": "boolean",
+				"description": "true = accept shutdown (exit after finishing current work), " +
+					"false = reject shutdown (continue working).",
 			},
 			"reason": map[string]any{
 				"type":        "string",
-				"description": "同意时的确认信息，或拒绝时的原因说明。",
+				"description": "Confirmation message on accept, or reason on reject.",
 			},
 		},
 		Required: []string{"request_id", "approve"},
@@ -377,16 +382,16 @@ func (t *ShutdownResponseTool) Execute(_ context.Context, input json.RawMessage)
 		return nil, fmt.Errorf("team_shutdown_response: %w", err)
 	}
 	if args.RequestID == "" {
-		return nil, fmt.Errorf("team_shutdown_response: 'request_id' 是必填项")
+		return nil, fmt.Errorf("team_shutdown_response: 'request_id' is required")
 	}
 
 	if err := t.loop.mgr.ResolveShutdownRequest(args.RequestID, args.Approve, args.Reason); err != nil {
 		return nil, err
 	}
 
-	result := fmt.Sprintf("已响应关机请求 %s: approve=%v", args.RequestID, args.Approve)
+	result := fmt.Sprintf("Responded to shutdown request %s: approve=%v", args.RequestID, args.Approve)
 	if args.Approve {
-		result += "。正在优雅退出..."
+		result += ". Shutting down gracefully..."
 	}
 	return []anthropic.BetaToolResultBlockParamContentUnion{
 		{OfText: &anthropic.BetaTextBlockParam{Text: result}},
@@ -395,7 +400,8 @@ func (t *ShutdownResponseTool) Execute(_ context.Context, input json.RawMessage)
 
 // ── PlanRequestTool (teammate) ────────────────────────────────────────
 
-// PlanRequestTool 队友用来在执行高风险操作前提交计划给 lead 审批。
+// PlanRequestTool is used by teammates to submit a plan to the lead for
+// approval before executing high-risk operations.
 type PlanRequestTool struct {
 	Mgr        *TeammateManager
 	SenderName string
@@ -404,10 +410,10 @@ type PlanRequestTool struct {
 func (t *PlanRequestTool) Name() string { return "team_plan_request" }
 
 func (t *PlanRequestTool) Description() string {
-	return "在执行高风险/不可逆操作前，向 lead 提交计划审批。" +
-		"生成唯一 request_id，计划以 plan_request 消息发送给 lead。" +
-		"lead 会用 team_plan_response 批准或拒绝。审批结果会自动出现在你的 <team-inbox> 中。" +
-		"使用场景: 重构、删除文件、破坏性更改、不熟悉的代码库中的大规模修改。"
+	return "Submit a plan to the lead for approval before executing high-risk or irreversible operations. " +
+		"Generates a unique request_id; the plan is sent to the lead as a plan_request message. " +
+		"The lead approves or rejects via team_plan_response. Results auto-appear in your <team-inbox>. " +
+		"Use for: refactoring, file deletion, destructive changes, large-scale modifications in unfamiliar codebases."
 }
 
 func (t *PlanRequestTool) InputSchema() anthropic.BetaToolInputSchemaParam {
@@ -415,11 +421,11 @@ func (t *PlanRequestTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 		Properties: map[string]any{
 			"plan": map[string]any{
 				"type":        "string",
-				"description": "计划描述，包括要做什么、怎么做、可能的影响。",
+				"description": "Plan description: what to do, how to do it, and potential impact.",
 			},
 			"context": map[string]any{
 				"type":        "string",
-				"description": "补充背景信息（可选），帮助 lead 理解为什么需要这个操作。",
+				"description": "Additional context (optional) to help the lead understand why this operation is needed.",
 			},
 		},
 		Required: []string{"plan"},
@@ -435,13 +441,13 @@ func (t *PlanRequestTool) Execute(_ context.Context, input json.RawMessage) ([]a
 		return nil, fmt.Errorf("team_plan_request: %w", err)
 	}
 	if args.Plan == "" {
-		return nil, fmt.Errorf("team_plan_request: 'plan' 是必填项")
+		return nil, fmt.Errorf("team_plan_request: 'plan' is required")
 	}
 
-	// 合并 plan 和 context
+	// Merge plan and context.
 	content := args.Plan
 	if args.Context != "" {
-		content = fmt.Sprintf("计划: %s\n背景: %s", args.Plan, args.Context)
+		content = fmt.Sprintf("Plan: %s\nContext: %s", args.Plan, args.Context)
 	}
 
 	reqID, err := t.Mgr.SubmitPlan(t.SenderName, content)
@@ -449,7 +455,7 @@ func (t *PlanRequestTool) Execute(_ context.Context, input json.RawMessage) ([]a
 		return nil, err
 	}
 
-	result := fmt.Sprintf("计划请求 %s 已提交 (状态: pending)。等待 lead 审批...", reqID)
+	result := fmt.Sprintf("Plan request %s submitted (status: pending). Waiting for lead approval...", reqID)
 	return []anthropic.BetaToolResultBlockParamContentUnion{
 		{OfText: &anthropic.BetaTextBlockParam{Text: result}},
 	}, nil
@@ -457,7 +463,7 @@ func (t *PlanRequestTool) Execute(_ context.Context, input json.RawMessage) ([]a
 
 // ── PlanResponseTool (lead) ───────────────────────────────────────────
 
-// PlanResponseTool lead 用来批准或拒绝队友提交的计划。
+// PlanResponseTool is used by the lead to approve or reject a teammate's plan.
 type PlanResponseTool struct {
 	Mgr *TeammateManager
 }
@@ -465,9 +471,10 @@ type PlanResponseTool struct {
 func (t *PlanResponseTool) Name() string { return "team_plan_response" }
 
 func (t *PlanResponseTool) Description() string {
-	return "审批队友提交的计划。当你的 <team-inbox> 中出现 type=\"plan_request\" 的消息时，" +
-		"引用该消息的 request_id，使用此工具批准 (approve: true) 或拒绝 (approve: false)。" +
-		"建议附带反馈意见，帮助队友理解你的决定。"
+	return "Approve or reject a plan submitted by a teammate. When a type=\"plan_request\" message " +
+		"appears in your <team-inbox>, reference its request_id and use this tool to approve " +
+		"(approve: true) or reject (approve: false). " +
+		"Include feedback to help the teammate understand your decision."
 }
 
 func (t *PlanResponseTool) InputSchema() anthropic.BetaToolInputSchemaParam {
@@ -475,15 +482,16 @@ func (t *PlanResponseTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 		Properties: map[string]any{
 			"request_id": map[string]any{
 				"type":        "string",
-				"description": "计划请求的 request_id，来自 <team-inbox> 中 plan_request 消息的属性。",
+				"description": "The request_id from the plan_request message in <team-inbox>.",
 			},
 			"approve": map[string]any{
-				"type":        "boolean",
-				"description": "true = 批准计划，队友可以开始执行。false = 拒绝计划，队友应放弃该操作。",
+				"type": "boolean",
+				"description": "true = approve the plan, teammate may proceed. " +
+					"false = reject the plan, teammate should abandon the operation.",
 			},
 			"feedback": map[string]any{
 				"type":        "string",
-				"description": "反馈意见。批准时可提供建议，拒绝时必须说明原因。",
+				"description": "Feedback. Provide suggestions on approval; explain the reason on rejection.",
 			},
 		},
 		Required: []string{"request_id", "approve"},
@@ -500,20 +508,20 @@ func (t *PlanResponseTool) Execute(_ context.Context, input json.RawMessage) ([]
 		return nil, fmt.Errorf("team_plan_response: %w", err)
 	}
 	if args.RequestID == "" {
-		return nil, fmt.Errorf("team_plan_response: 'request_id' 是必填项")
+		return nil, fmt.Errorf("team_plan_response: 'request_id' is required")
 	}
 
 	if err := t.Mgr.ResolvePlanRequest(args.RequestID, args.Approve, args.Feedback); err != nil {
 		return nil, err
 	}
 
-	action := "拒绝"
+	action := "rejected"
 	if args.Approve {
-		action = "批准"
+		action = "approved"
 	}
-	result := fmt.Sprintf("已%s计划请求 %s。队友将收到通知。", action, args.RequestID)
+	result := fmt.Sprintf("Plan request %s %s. The teammate will be notified.", args.RequestID, action)
 	if args.Feedback != "" {
-		result += fmt.Sprintf(" 反馈: %s", args.Feedback)
+		result += fmt.Sprintf(" Feedback: %s", args.Feedback)
 	}
 	return []anthropic.BetaToolResultBlockParamContentUnion{
 		{OfText: &anthropic.BetaTextBlockParam{Text: result}},
@@ -522,9 +530,10 @@ func (t *PlanResponseTool) Execute(_ context.Context, input json.RawMessage) ([]
 
 // ── IdleTool (teammate) ──────────────────────────────────────────────
 
-// IdleTool 队友用来主动进入空闲状态。
-// 当队友完成当前工作且没有更多任务时调用此工具，
-// 进入 IDLE 阶段等待新消息或自动认领任务。
+// IdleTool lets a teammate voluntarily enter idle state.
+// When the teammate finishes current work and has no more tasks,
+// it calls this tool to enter the IDLE phase, waiting for new
+// messages or auto-claiming tasks.
 type IdleTool struct {
 	loop *teammateLoop
 }
@@ -532,10 +541,10 @@ type IdleTool struct {
 func (t *IdleTool) Name() string { return "idle" }
 
 func (t *IdleTool) Description() string {
-	return "完成当前工作后调用此工具进入空闲状态。" +
-		"在空闲状态下，系统会自动检查收件箱和任务看板，" +
-		"如果有新消息或可认领的任务会自动唤醒你。" +
-		"如果 60 秒内没有任何事情，你会自动关机退出。"
+	return "Call this tool after completing current work to enter idle state. " +
+		"In idle state, the system auto-checks inbox and task board; " +
+		"you will be auto-woken if new messages or claimable tasks arrive. " +
+		"If nothing happens within 60 seconds, you will auto-shutdown."
 }
 
 func (t *IdleTool) InputSchema() anthropic.BetaToolInputSchemaParam {
@@ -548,15 +557,16 @@ func (t *IdleTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 func (t *IdleTool) Execute(_ context.Context, input json.RawMessage) ([]anthropic.BetaToolResultBlockParamContentUnion, error) {
 	t.loop.idleRequested = true
 	return []anthropic.BetaToolResultBlockParamContentUnion{
-		{OfText: &anthropic.BetaTextBlockParam{Text: "进入空闲状态。等待新消息或可认领任务..."}},
+		{OfText: &anthropic.BetaTextBlockParam{Text: "Entering idle state. Waiting for new messages or claimable tasks..."}},
 	}, nil
 }
 
 // ── ClaimTaskTool (teammate) ─────────────────────────────────────────
 
-// ClaimTaskTool 队友用来手动认领任务看板中的任务。
-// 系统会在 IDLE 阶段自动认领未分配任务，此工具保留给 LLM
-// 在工作阶段手动认领特定任务的需求。
+// ClaimTaskTool lets a teammate manually claim a task from the task board.
+// The system auto-claims unassigned tasks during the IDLE phase; this tool
+// is reserved for when the LLM needs to manually claim a specific task
+// during the WORK phase.
 type ClaimTaskTool struct {
 	loop *teammateLoop
 }
@@ -564,8 +574,8 @@ type ClaimTaskTool struct {
 func (t *ClaimTaskTool) Name() string { return "claim_task" }
 
 func (t *ClaimTaskTool) Description() string {
-	return "手动认领任务看板中未分配的任务。系统会在空闲时自动认领，" +
-		"此工具用于在工作阶段手动认领特定任务。"
+	return "Manually claim an unassigned task from the task board. The system auto-claims during idle; " +
+		"use this tool to manually claim a specific task during the work phase."
 }
 
 func (t *ClaimTaskTool) InputSchema() anthropic.BetaToolInputSchemaParam {
@@ -573,7 +583,7 @@ func (t *ClaimTaskTool) InputSchema() anthropic.BetaToolInputSchemaParam {
 		Properties: map[string]any{
 			"task_id": map[string]any{
 				"type":        "string",
-				"description": "要认领的任务 ID。",
+				"description": "The ID of the task to claim.",
 			},
 		},
 		Required: []string{"task_id"},
@@ -588,12 +598,12 @@ func (t *ClaimTaskTool) Execute(_ context.Context, input json.RawMessage) ([]ant
 		return nil, fmt.Errorf("claim_task: %w", err)
 	}
 	if args.TaskID == "" {
-		return nil, fmt.Errorf("claim_task: task_id 是必填项")
+		return nil, fmt.Errorf("claim_task: task_id is required")
 	}
 
 	mgr := t.loop.mgr
 	if mgr.taskMgr == nil {
-		return nil, fmt.Errorf("claim_task: 任务看板不可用")
+		return nil, fmt.Errorf("claim_task: task board unavailable")
 	}
 
 	owner := t.loop.name
@@ -606,7 +616,7 @@ func (t *ClaimTaskTool) Execute(_ context.Context, input json.RawMessage) ([]ant
 		return nil, fmt.Errorf("claim_task: %w", err)
 	}
 
-	result := fmt.Sprintf("已认领任务 %s（owner=%s, status=in_progress）", args.TaskID, owner)
+	result := fmt.Sprintf("Claimed task %s (owner=%s, status=in_progress)", args.TaskID, owner)
 	return []anthropic.BetaToolResultBlockParamContentUnion{
 		{OfText: &anthropic.BetaTextBlockParam{Text: result}},
 	}, nil

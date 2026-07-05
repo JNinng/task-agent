@@ -63,12 +63,12 @@ func newTeammateLoop(
 				"to the lead or the teammate who requested the work.\n"+
 				"Do NOT spawn additional teammates or subagents.\n\n"+
 				"### Team Protocols\n"+
-				"- 当你收到 type=\"shutdown_request\" 的消息时，使用 team_shutdown_response\n"+
-				"  响应，引用相同的 request_id。如果可以安全停止当前工作，设置 approve: true；\n"+
-				"  如果正在执行关键操作且不能中断，设置 approve: false 并说明原因。\n"+
-				"- 在执行高风险或不可逆操作前（如重构代码、删除文件、破坏性更改），\n"+
-				"  先使用 team_plan_request 提交计划给 lead 审批。等待 <team-inbox> 中出现\n"+
-				"  type=\"plan_response\" 的审批结果后再继续执行。",
+				"- When you receive a type=\"shutdown_request\" message, respond with team_shutdown_response\n"+
+				"  referencing the same request_id. If current work can be safely stopped, set approve: true;\n"+
+				"  if performing critical work that cannot be interrupted, set approve: false and explain why.\n"+
+				"- Before executing high-risk or irreversible operations (refactoring, file deletion, destructive\n"+
+				"  changes), submit a plan to the lead for approval using team_plan_request. Wait for the\n"+
+				"  approval result (type=\"plan_response\") in <team-inbox> before proceeding.",
 			name, role, lead, workdir,
 		)},
 	}
@@ -428,14 +428,14 @@ func (t *teammateLoop) claimAndInject() bool {
 	// 注入 <auto-claimed> 块到消息历史
 	claimBlock := fmt.Sprintf(
 		"<auto-claimed>\n"+
-			"  已自动认领任务:\n"+
+			"  Auto-claimed task:\n"+
 			"  ID: %s\n"+
-			"  主题: %s\n"+
-			"  描述: %s\n"+
-			"  Owner: %s (我)\n"+
+			"  Subject: %s\n"+
+			"  Description: %s\n"+
+			"  Owner: %s (me)\n"+
 			"  Status: in_progress\n"+
 			"</auto-claimed>\n\n"+
-			"请立即开始执行此任务。",
+			"Start working on this task immediately.",
 		target.ID, target.Subject, target.Description, t.name,
 	)
 

@@ -98,7 +98,9 @@ func New() (*Agent, error) {
 	var systemText strings.Builder
 	systemText.WriteString(fmt.Sprintf(
 		"You are a coding agent at %s.\n"+
-			"Use tools to solve tasks. Act, don't explain.\n\n"+
+			"Use tools to solve tasks. Act, don't explain.\n"+
+			"Do NOT explore the filesystem, list directories, or read config files before acting. "+
+			"Go straight to the tool that solves the task.\n\n"+
 			"The todo tool is a quick in-memory checklist for this session only.\n"+
 			"For structured, persistent work with dependencies, use the task graph tools:\n"+
 			"  - task_create — create tasks in the persistent graph\n"+
@@ -144,8 +146,8 @@ func New() (*Agent, error) {
 	// Layer 1: skill name + description list (~100 tokens/skill)
 	if desc := loader.Descriptions(); desc != "" {
 		systemText.WriteString(fmt.Sprintf("\n\nSkills loaded from ~/%s/skills/ and "+
-			"<project>/%s/skills/. The list below is complete — use "+
-			"load_skill to expand full instructions. Do NOT search the filesystem for skills.\n",
+			"<project>/%s/skills/. The list below is COMPLETE — only use "+
+			"load_skill for names listed here. Do NOT guess or search the filesystem for skills.\n",
 			DirAgent, DirAgent))
 		systemText.WriteString(desc)
 	}

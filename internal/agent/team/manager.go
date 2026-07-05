@@ -167,7 +167,7 @@ func (m *TeammateManager) RequestShutdown(teammate, reason string) (string, erro
 		}
 	}
 	if !found {
-		return "", fmt.Errorf("shutdown_request: 队友 '%s' 未在运行", teammate)
+		return "", fmt.Errorf("shutdown_request: teammate '%s' is not running", teammate)
 	}
 
 	req := m.trackShutdownRequest(teammate, reason)

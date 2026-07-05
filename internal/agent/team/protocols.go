@@ -29,9 +29,9 @@ type ShutdownRequest struct {
 // PlanRequest 追踪一次计划审批请求的生命周期。
 type PlanRequest struct {
 	RequestID string        `json:"request_id"`
-	From      string        `json:"from"`              // 发起计划的队友名
-	Plan      string        `json:"plan"`              // 计划描述
-	Status    RequestStatus `json:"status"`            // pending | approved | rejected
+	From      string        `json:"from"`               // 发起计划的队友名
+	Plan      string        `json:"plan"`               // 计划描述
+	Status    RequestStatus `json:"status"`             // pending | approved | rejected
 	Feedback  string        `json:"feedback,omitempty"` // 审批反馈
 	Timestamp int64         `json:"timestamp"`
 }
@@ -78,10 +78,10 @@ func (m *TeammateManager) trackPlanRequest(from, plan string) *PlanRequest {
 func (m *TeammateManager) resolveShutdownRequest(requestID string, approve bool, reason string) error {
 	req, ok := m.shutdownRequests[requestID]
 	if !ok {
-		return fmt.Errorf("shutdown_request %s: 未找到该请求", requestID)
+		return fmt.Errorf("shutdown_request %s: request not found", requestID)
 	}
 	if req.Status != RequestPending {
-		return fmt.Errorf("shutdown_request %s: 请求已经处于 %s 状态，无法再次响应", requestID, req.Status)
+		return fmt.Errorf("shutdown_request %s: request is already %s, cannot respond again", requestID, req.Status)
 	}
 	if approve {
 		req.Status = RequestApproved
@@ -97,10 +97,10 @@ func (m *TeammateManager) resolveShutdownRequest(requestID string, approve bool,
 func (m *TeammateManager) resolvePlanRequest(requestID string, approve bool, feedback string) error {
 	req, ok := m.planRequests[requestID]
 	if !ok {
-		return fmt.Errorf("plan_request %s: 未找到该请求", requestID)
+		return fmt.Errorf("plan_request %s: request not found", requestID)
 	}
 	if req.Status != RequestPending {
-		return fmt.Errorf("plan_request %s: 请求已经处于 %s 状态，无法再次响应", requestID, req.Status)
+		return fmt.Errorf("plan_request %s: request is already %s, cannot respond again", requestID, req.Status)
 	}
 	if approve {
 		req.Status = RequestApproved

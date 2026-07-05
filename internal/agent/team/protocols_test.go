@@ -147,8 +147,8 @@ func TestShutdownRequestNonExistentTeammate(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-existent teammate")
 	}
-	if !strings.Contains(err.Error(), "未在运行") {
-		t.Errorf("expected '未在运行' in error, got: %v", err)
+	if !strings.Contains(err.Error(), "is not running") {
+		t.Errorf("expected 'is not running' in error, got: %v", err)
 	}
 }
 
