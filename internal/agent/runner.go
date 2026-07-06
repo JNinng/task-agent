@@ -387,7 +387,8 @@ func (r *Runner) RenderTeamRoster() string {
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Team lead: %s\n", r.teamMgr.LeadName()))
-	b.WriteString(fmt.Sprintf("%-4s %-16s %-20s %s\n", "", "Name", "Role", "Status"))
+	b.WriteString(fmt.Sprintf("%-4s %s %s %s\n",
+		"", padDisplay("Name", 16), padDisplay("Role", 20), "Status"))
 
 	for _, m := range roster {
 		icon := statusIcon[m.Status]
@@ -396,8 +397,11 @@ func (r *Runner) RenderTeamRoster() string {
 			icon = "[?]"
 			label = string(m.Status)
 		}
-		line := fmt.Sprintf("%s %-16s %-20s %s",
-			icon, m.Name, m.Role, label)
+		line := fmt.Sprintf("%s %s %s %s",
+			icon,
+			padDisplay(m.Name, 16),
+			padDisplay(m.Role, 20),
+			label)
 		if m.Model != "" {
 			line += fmt.Sprintf(" (%s)", m.Model)
 		}
@@ -405,4 +409,47 @@ func (r *Runner) RenderTeamRoster() string {
 	}
 
 	return b.String()
+}
+
+// displayWidth returns the visual width of s in a terminal, where CJK
+// characters (Chinese/Japanese/Korean) occupy 2 columns and ASCII occupies 1.
+func displayWidth(s string) int {
+	w := 0
+	for _, r := range s {
+		// CJK Unified Ideographs (4E00-9FFF), CJK Unified Ideographs Extension A (3400-4DBF),
+		// CJK Compatibility Ideographs (F900-FAFF), fullwidth forms (FF01-FF60,FFE0-FFE6),
+		// and common CJK punctuation/ruby ranges.
+		if r >= 0x2E80 && r <= 0xFE4F || r >= 0xFF01 && r <= 0xFF60 || r >= 0xFFE0 && r <= 0xFFE6 {
+			w += 2
+		} else {
+			w++
+		}
+	}
+	return w
+}
+
+// padDisplay pads s to at least width visual columns. If s is wider, it's
+// truncated with "…" (single ellipsis, 1 column) to fit width.
+func padDisplay(s string, width int) string {
+	dw := displayWidth(s)
+	if dw >= width {
+		// Truncate with ellipsis if too wide.
+		runes := []rune(s)
+		var buf strings.Builder
+		remain := width - 1 // leave room for ellipsis
+		for _, r := range runes {
+			rw := 2
+			if !(r >= 0x2E80 && r <= 0xFE4F || r >= 0xFF01 && r <= 0xFF60 || r >= 0xFFE0 && r <= 0xFFE6) {
+				rw = 1
+			}
+			if remain-rw < 0 {
+				break
+			}
+			buf.WriteRune(r)
+			remain -= rw
+		}
+		buf.WriteRune('…')
+		return buf.String()
+	}
+	return s + strings.Repeat(" ", width-dw)
 }
