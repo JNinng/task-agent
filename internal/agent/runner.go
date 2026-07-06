@@ -362,3 +362,47 @@ func (r *Runner) RenderTaskList() string {
 	}
 	return t.Render()
 }
+
+// RenderTeamRoster returns the formatted team roster string.
+// Returns an empty string if there is no team manager.
+func (r *Runner) RenderTeamRoster() string {
+	if r.teamMgr == nil {
+		return ""
+	}
+	roster := r.teamMgr.Roster()
+	if len(roster) == 0 {
+		return "No teammates."
+	}
+
+	statusIcon := map[team.Status]string{
+		team.StatusWorking:  "[>]",
+		team.StatusIdle:     "[-]",
+		team.StatusShutdown: "[x]",
+	}
+	statusLabel := map[team.Status]string{
+		team.StatusWorking:  "working",
+		team.StatusIdle:     "idle",
+		team.StatusShutdown: "shutdown",
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Team lead: %s\n", r.teamMgr.LeadName()))
+	b.WriteString(fmt.Sprintf("%-4s %-16s %-20s %s\n", "", "Name", "Role", "Status"))
+
+	for _, m := range roster {
+		icon := statusIcon[m.Status]
+		label := statusLabel[m.Status]
+		if icon == "" {
+			icon = "[?]"
+			label = string(m.Status)
+		}
+		line := fmt.Sprintf("%s %-16s %-20s %s",
+			icon, m.Name, m.Role, label)
+		if m.Model != "" {
+			line += fmt.Sprintf(" (%s)", m.Model)
+		}
+		b.WriteString(line + "\n")
+	}
+
+	return b.String()
+}
