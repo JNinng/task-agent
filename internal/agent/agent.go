@@ -8,11 +8,13 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"go.uber.org/zap"
 	"task-agent/internal/agent/background"
 	"task-agent/internal/agent/skill"
 	"task-agent/internal/agent/tasks"
 	"task-agent/internal/agent/team"
 	"task-agent/internal/agent/tools"
+	"task-agent/internal/logger"
 )
 
 type Agent struct {
@@ -170,11 +172,27 @@ func New() (*Agent, error) {
 
 	compactCfg := DefaultCompactionConfig()
 
+	// --- Session persistence ---
+	sessionStore := NewSessionStore(DataDir())
+	// Generate a session ID eagerly so saveSession can work from the
+	// very first turn. If Resume() below restores a previous session,
+	// the ID is overwritten by the restored session's identifier.
+	sessionID := GenerateSessionID()
+
 	var compactTrigger func() (string, error)
 
-	ag.Runner = NewRunner(ag, compactCfg, bgMgr, teamMgr, func(fn func() (string, error)) {
+	ag.Runner = NewRunner(ag, compactCfg, bgMgr, teamMgr, sessionStore, func(fn func() (string, error)) {
 		compactTrigger = fn
 	})
+
+	// Try to restore the most recent session. If successful, the
+	// session ID and message history are loaded from disk.
+	ag.Runner.sessionID = sessionID
+	if ag.Runner.Resume() {
+		logger.Info("Resumed previous session",
+			zap.String("session_id", ag.Runner.sessionID),
+			zap.Int("messages", len(ag.Runner.messages)))
+	}
 
 	ag.registry = tools.NewRegistry(
 		tools.BashTool{},

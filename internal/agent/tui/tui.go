@@ -32,6 +32,7 @@ var agentCommands = map[string]string{
 	"/task":   "显示持久化任务列表",
 	"/team":   "显示队友列表（名称、角色、状态）",
 	"/clear":  "清空会话上下文",
+	"/sessions": "显示已保存的会话列表",
 	"/memctx": "输出上下文 /memctx [file]（* 快速导出；. 当前目录；自动补 .jsonl；非法路径回退到默认目录）",
 }
 
@@ -87,6 +88,34 @@ func NewTUI(session agent.Session, opts ...tea.ProgramOption) *tea.Program {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	content := []string{}
+	if session.SessionID() != "" && len(session.Messages()) > 0 {
+		content = append(content, styleDim.Render(fmt.Sprintf(
+			"[Resumed session %s — %d messages]",
+			session.SessionID(), len(session.Messages()))))
+		// Reconstruct display from restored conversation history so the
+		// user can see previous exchanges in the viewport.
+		prevRole := ""
+		for _, msg := range session.Messages() {
+			if prevRole == "assistant" && msg.Role == "user" {
+				content = append(content, "") // blank line between exchanges
+			}
+			for _, block := range msg.Content {
+				if block.OfText != nil {
+					if msg.Role == "user" && !strings.HasPrefix(block.OfText.Text, "[") {
+						content = append(content, styleYellow.Render(">>> "+block.OfText.Text))
+					} else if msg.Role == "assistant" {
+						if len(content) > 0 && content[len(content)-1] != "" {
+							content = append(content, "") // blank line before assistant response
+						}
+						content = append(content, block.OfText.Text)
+					}
+				}
+			}
+			prevRole = string(msg.Role)
+		}
+	}
+
 	return tea.NewProgram(&model{
 		session:      session,
 		ctx:          ctx,
@@ -94,7 +123,7 @@ func NewTUI(session agent.Session, opts ...tea.ProgramOption) *tea.Program {
 		textarea:     ta,
 		viewport:     vp,
 		autocomplete: ac,
-		content:      []string{},
+		content:      content,
 		senderStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("5")),
 	}, opts...)
 }
@@ -339,6 +368,19 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 		m.textarea.Reset()
 		m.autocomplete.Reset()
 		m.handleMemctx(query)
+		m.refreshViewport()
+		return m, nil
+	}
+
+	if query == "/sessions" {
+		m.appendContent(m.senderStyle.Render(">>> ") + query)
+		m.textarea.Reset()
+		m.autocomplete.Reset()
+		if s := m.session.RenderSessions(); s != "" {
+			m.appendContent(styleCyan.Render(s))
+		} else {
+			m.appendContent(styleRed.Render("Session store not available"))
+		}
 		m.refreshViewport()
 		return m, nil
 	}

@@ -34,6 +34,13 @@ type Session interface {
 	// RenderTeamRoster returns the formatted team roster string.
 	RenderTeamRoster() string
 
+	// SessionID returns the current session identifier, or empty string
+	// if session persistence is not active.
+	SessionID() string
+
+	// RenderSessions returns a formatted list of saved sessions.
+	RenderSessions() string
+
 	// PreviewToolUse returns a human-readable one-line preview of a tool
 	// call, delegating to the tool's Previewer implementation.
 	PreviewToolUse(tc tools.ToolUseBlock) string

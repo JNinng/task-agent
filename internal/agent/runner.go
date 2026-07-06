@@ -1,4 +1,4 @@
-package agent
+﻿package agent
 
 import (
 	"context"
@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"go.uber.org/zap"
 	"task-agent/internal/agent/background"
 	"task-agent/internal/agent/team"
 	"task-agent/internal/agent/tools"
+	"task-agent/internal/logger"
 )
 
 // Ensure Runner implements Session at compile time.
@@ -24,10 +26,13 @@ type Runner struct {
 	compacted       bool                  // set when autoCompact replaces messages; skips tool_result appending
 	bgMgr           *background.Manager   // tracks background tasks; nil if not wired yet
 	teamMgr         *team.TeammateManager // tracks agent team; nil if not wired yet
+	sessionStore    *SessionStore         // persists conversation to disk; nil if disabled
+	sessionID       string                // current session identifier
+	sessionMeta     *SessionMetadata      // cached session metadata (lazy on first save)
 }
 
-func NewRunner(ag *Agent, cfg CompactionConfig, bgMgr *background.Manager, teamMgr *team.TeammateManager, setCompact func(func() (string, error))) *Runner {
-	r := &Runner{agent: ag, compactCfg: cfg, bgMgr: bgMgr, teamMgr: teamMgr}
+func NewRunner(ag *Agent, cfg CompactionConfig, bgMgr *background.Manager, teamMgr *team.TeammateManager, sessionStore *SessionStore, setCompact func(func() (string, error))) *Runner {
+	r := &Runner{agent: ag, compactCfg: cfg, bgMgr: bgMgr, teamMgr: teamMgr, sessionStore: sessionStore}
 	setCompact(r.compact)
 	return r
 }
@@ -83,7 +88,7 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- tools.Even
 	ch <- EventThinking{}
 
 	for {
-		// Layer 1: micro_compact — replace old tool_results with placeholders
+		// Layer 1: micro_compact 鈥?replace old tool_results with placeholders
 		microCompact(r.messages, r.compactCfg.MicroKeepRecent)
 
 		// Layer 1b: inject completed background task notifications before the
@@ -110,17 +115,20 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- tools.Even
 			return
 		}
 
-		// Layer 2: auto_compact — check token threshold after API response
+		// Layer 2: auto_compact 鈥?check token threshold after API response
 		if r.compactCfg.AutoThreshold > 0 && resp.Usage.InputTokens > int64(r.compactCfg.AutoThreshold) {
 			// Append the response so the compressed summary includes this turn
 			r.messages = append(r.messages, resp.ToParam())
 			ch <- EventText{Content: fmt.Sprintf(
-				"[context: %d tokens — auto-compacting]", int64(r.compactCfg.AutoThreshold))}
+				"[context: %d tokens 鈥?auto-compacting]", int64(r.compactCfg.AutoThreshold))}
 			if err := r.autoCompact(ctx); err != nil {
 				ch <- EventText{Content: fmt.Sprintf("[compact warning: %v]", err)}
 			} else {
 				ch <- EventText{Content: "[auto-compact done]"}
 			}
+			// Save compacted state so resume picks up the compressed
+			// summary instead of the pre-compact conversation.
+			r.saveSession()
 			ch <- EventThinking{}
 			continue
 		}
@@ -157,6 +165,8 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- tools.Even
 					}))
 				continue
 			}
+			// Save session before emitting done so the final state is persisted.
+			r.saveSession()
 			ch <- EventDone{}
 			return
 		}
@@ -218,7 +228,7 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- tools.Even
 		}
 
 		// When compaction replaced r.messages during tool dispatch (e.g.
-		// the compact tool), skip appending tool_result blocks — their
+		// the compact tool), skip appending tool_result blocks 鈥?their
 		// tool_use counterparts no longer exist in the message history
 		// and the API would reject orphaned tool_result blocks.
 		//
@@ -229,6 +239,9 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- tools.Even
 		// input. This prevents the model from auto-responding with
 		// redundant project exploration or capability re-listing.
 		if r.compacted {
+			// Save the compacted state before exiting so the next
+			// turn starts from the compressed conversation.
+			r.saveSession()
 			r.compacted = false
 			ch <- EventDone{}
 			return
@@ -254,6 +267,10 @@ func (r *Runner) runLoop(ctx context.Context, input string, ch chan<- tools.Even
 			})
 		}
 		r.messages = append(r.messages, anthropic.NewBetaUserMessage(contentBlocks...))
+
+		// Persist the full message history after each complete turn so
+		// the conversation can be resumed if the app is restarted.
+		r.saveSession()
 	}
 }
 
@@ -339,8 +356,105 @@ func (r *Runner) injectTeamInbox(ch chan<- tools.Event) {
 }
 
 // Clear resets the message history to start a fresh conversation.
+// If session persistence is active, the cleared state is also saved
+// so a restart won't resurrect stale messages.
 func (r *Runner) Clear() {
 	r.messages = nil
+	r.compacted = false
+	if r.sessionStore != nil && r.sessionID != "" {
+		r.sessionMeta = nil
+		_ = r.sessionStore.SaveMessages(r.sessionID, r.messages, nil)
+	}
+}
+
+// saveSession persists the current message history to disk.
+// It is called after each complete turn (tool results appended)
+// and after compaction. Errors are silently ignored 鈥?persistence
+// is best-effort and must not interrupt the agent loop.
+func (r *Runner) saveSession() {
+	if r.sessionStore == nil || r.sessionID == "" {
+		return
+	}
+
+	// Initialize metadata on first save.
+	if r.sessionMeta == nil {
+		r.sessionMeta = &SessionMetadata{
+			SessionID: r.sessionID,
+			Model:     string(r.agent.model),
+			CreatedAt: time.Now().Unix(),
+		}
+	}
+	r.sessionMeta.Compacted = r.compacted
+	r.sessionMeta.UpdatedAt = time.Now().Unix()
+	r.sessionMeta.MessageCount = len(r.messages)
+
+	if err := r.sessionStore.SaveNoLock(r.sessionID, r.messages, r.sessionMeta); err != nil {
+		logger.Warn("Failed to save session", zap.Error(err))
+	}
+}
+
+// Resume attempts to load the most recent saved session.
+// Returns true if a session was restored.
+func (r *Runner) Resume() bool {
+	if r.sessionStore == nil {
+		return false
+	}
+
+	sessionID, err := r.sessionStore.LatestSessionID()
+	if err != nil || sessionID == "" {
+		return false
+	}
+
+	messages, err := r.sessionStore.LoadMessages(sessionID)
+	if err != nil || len(messages) == 0 {
+		return false
+	}
+
+	meta, _ := r.sessionStore.LoadMetadata(sessionID)
+
+	r.messages = messages
+	r.sessionID = sessionID
+	r.sessionMeta = meta
+	return true
+}
+
+// SessionID returns the current session identifier, or empty string
+// if session persistence is not active.
+func (r *Runner) SessionID() string {
+	return r.sessionID
+}
+
+// RenderSessions returns a formatted list of saved sessions.
+// Returns an empty string if the session store is not available.
+func (r *Runner) RenderSessions() string {
+	if r.sessionStore == nil {
+		return ""
+	}
+	sessions, err := r.sessionStore.ListSessions()
+	if err != nil {
+		return fmt.Sprintf("Error listing sessions: %v", err)
+	}
+	if len(sessions) == 0 {
+		return "No saved sessions."
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%-30s %10s  %s\n", "Session ID", "Messages", "Last Updated"))
+	b.WriteString(strings.Repeat("-", 60) + "\n")
+	for _, s := range sessions {
+		mark := " "
+		if s.SessionID == r.sessionID {
+			mark = "*"
+		}
+		var updated string
+		if s.UpdatedAt > 0 {
+			updated = time.Unix(s.UpdatedAt, 0).Format("2006-01-02 15:04")
+		} else {
+			updated = "-"
+		}
+		b.WriteString(fmt.Sprintf("%s%-30s %5d  %s\n", mark, s.SessionID, s.MessageCount, updated))
+	}
+	return b.String()
 }
 
 // RenderTodo returns the formatted in-memory todo list string.
@@ -429,7 +543,7 @@ func displayWidth(s string) int {
 }
 
 // padDisplay pads s to at least width visual columns. If s is wider, it's
-// truncated with "…" (single ellipsis, 1 column) to fit width.
+// truncated with "鈥? (single ellipsis, 1 column) to fit width.
 func padDisplay(s string, width int) string {
 	dw := displayWidth(s)
 	if dw >= width {
@@ -453,3 +567,5 @@ func padDisplay(s string, width int) string {
 	}
 	return s + strings.Repeat(" ", width-dw)
 }
+
+
