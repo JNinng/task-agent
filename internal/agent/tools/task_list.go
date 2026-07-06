@@ -16,6 +16,21 @@ type TaskListTool struct {
 	Mgr *tasks.Manager
 }
 
+// Render returns a formatted list of all non-deleted tasks (no filtering).
+// Returns the same format as the tool's Execute result.
+func (t *TaskListTool) Render() string {
+	list, err := t.Mgr.List(tasks.ListFilter{ExcludeDeleted: true})
+	if err != nil {
+		return fmt.Sprintf("Error listing tasks: %v", err)
+	}
+
+	if len(list) == 0 {
+		return "No tasks."
+	}
+
+	return formatTaskList(list)
+}
+
 func (t *TaskListTool) Name() string { return "task_list" }
 
 func (t *TaskListTool) Description() string {
@@ -65,6 +80,28 @@ func (t *TaskListTool) Execute(ctx context.Context, input json.RawMessage) ([]an
 		}, nil
 	}
 
+	text := formatTaskList(list)
+	if args.Status != "" {
+		text = fmt.Sprintf("Filter: status=%q\n\n%s", args.Status, text)
+	}
+	return []anthropic.BetaToolResultBlockParamContentUnion{
+		{OfText: &anthropic.BetaTextBlockParam{Text: text}},
+	}, nil
+}
+
+func countStatus(tasks []tasks.Task, status string) int {
+	n := 0
+	for _, t := range tasks {
+		if t.Status == status {
+			n++
+		}
+	}
+	return n
+}
+
+// formatTaskList renders a slice of tasks into a human-readable string.
+// Used by both TaskListTool.Execute and TaskListTool.Render.
+func formatTaskList(list []tasks.Task) string {
 	markers := map[string]string{
 		"pending":     "[ ]",
 		"in_progress": "[>]",
@@ -105,20 +142,7 @@ func (t *TaskListTool) Execute(ctx context.Context, input json.RawMessage) ([]an
 		}
 	}
 	lines = append(lines, fmt.Sprintf("(%s)", strings.Join(parts, ", ")))
-
-	return []anthropic.BetaToolResultBlockParamContentUnion{
-		{OfText: &anthropic.BetaTextBlockParam{Text: strings.Join(lines, "\n")}},
-	}, nil
-}
-
-func countStatus(tasks []tasks.Task, status string) int {
-	n := 0
-	for _, t := range tasks {
-		if t.Status == status {
-			n++
-		}
-	}
-	return n
+	return strings.Join(lines, "\n")
 }
 
 // idToInt parses a numeric task ID string.

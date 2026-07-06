@@ -352,3 +352,13 @@ func (r *Runner) RenderTodo() string {
 	}
 	return t.Render()
 }
+
+// RenderTaskList returns the formatted persistent task graph string.
+// Returns an empty string if the task_list tool is not available.
+func (r *Runner) RenderTaskList() string {
+	t, ok := r.agent.registry.Tool("task_list").(*tools.TaskListTool)
+	if !ok {
+		return ""
+	}
+	return t.Render()
+}

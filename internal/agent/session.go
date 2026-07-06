@@ -28,6 +28,9 @@ type Session interface {
 	// RenderTodo returns the formatted in-memory todo list string.
 	RenderTodo() string
 
+	// RenderTaskList returns the formatted persistent task graph string.
+	RenderTaskList() string
+
 	// PreviewToolUse returns a human-readable one-line preview of a tool
 	// call, delegating to the tool's Previewer implementation.
 	PreviewToolUse(tc tools.ToolUseBlock) string

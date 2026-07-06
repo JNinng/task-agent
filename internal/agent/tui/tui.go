@@ -29,6 +29,7 @@ var agentCommands = map[string]string{
 	"/exit":   "退出程序",
 	"/q":      "退出程序（快捷方式）",
 	"/todo":   "显示待办任务列表",
+	"/task":   "显示持久化任务列表",
 	"/clear":  "清空会话上下文",
 	"/memctx": "输出上下文 /memctx [file]（* 快速导出；. 当前目录；自动补 .jsonl；非法路径回退到默认目录）",
 }
@@ -292,6 +293,19 @@ func (m *model) submit() (tea.Model, tea.Cmd) {
 			m.appendContent(styleCyan.Render(s))
 		} else {
 			m.appendContent(styleRed.Render("Todo tool not available"))
+		}
+		m.refreshViewport()
+		return m, nil
+	}
+
+	if query == "/task" {
+		m.appendContent(m.senderStyle.Render(">>> ") + query)
+		m.textarea.Reset()
+		m.autocomplete.Reset()
+		if s := m.session.RenderTaskList(); s != "" {
+			m.appendContent(styleCyan.Render(s))
+		} else {
+			m.appendContent(styleRed.Render("Task list tool not available"))
 		}
 		m.refreshViewport()
 		return m, nil
