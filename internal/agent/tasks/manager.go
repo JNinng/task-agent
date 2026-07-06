@@ -81,15 +81,14 @@ type Manager struct {
 }
 
 // NewManager creates a Manager backed by baseDir/tasks/taskListID.
+// The task directory is NOT created eagerly — it will be created on
+// first actual read or write (List, Create, etc.).
 // If taskListID is empty it defaults to "default".
 func NewManager(baseDir, taskListID string) (*Manager, error) {
 	if taskListID == "" {
 		taskListID = "default"
 	}
 	dir := filepath.Join(baseDir, "tasks", taskListID)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, fmt.Errorf("create tasks dir: %w", err)
-	}
 	return &Manager{dir: dir}, nil
 }
 
@@ -606,7 +605,7 @@ var defaultSessionID string
 
 func init() {
 	// Per-process session ID with timestamp-first format so directories
-	// sort chronologically: YYYYMMDD-HHMMSS-hostname-pid.
+	// sort chronologically: YYYYMMDD-HHMMSS-hostname-pid
 	host, _ := os.Hostname()
 	defaultSessionID = fmt.Sprintf("%s-%s-%d",
 		time.Now().Format("20060102-150405"), host, os.Getpid())
