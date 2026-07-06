@@ -88,7 +88,7 @@ func NewManager(baseDir, taskListID string) (*Manager, error) {
 	if taskListID == "" {
 		taskListID = "default"
 	}
-	dir := filepath.Join(baseDir, "tasks", taskListID)
+	dir := filepath.Join(baseDir, "task", taskListID)
 	return &Manager{dir: dir}, nil
 }
 
