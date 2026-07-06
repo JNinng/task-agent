@@ -252,6 +252,13 @@ func (m *Manager) List(filter ListFilter) ([]Task, error) {
 
 	entries, err := os.ReadDir(m.dir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// Directory gone (e.g. cleaned between sessions) → recreate.
+			if mkErr := m.ensureDirLocked(); mkErr != nil {
+				return nil, fmt.Errorf("create tasks dir: %w", mkErr)
+			}
+			return nil, nil // empty
+		}
 		return nil, fmt.Errorf("read tasks dir: %w", err)
 	}
 
@@ -339,6 +346,9 @@ func (m *Manager) Reset() error {
 
 	entries, err := os.ReadDir(m.dir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // nothing to reset
+		}
 		return fmt.Errorf("read tasks dir: %w", err)
 	}
 
@@ -433,6 +443,9 @@ func (m *Manager) clearDependencyLocked(completedID string) error {
 	// Update all tasks that list completedID in their blockedBy.
 	entries, err := os.ReadDir(m.dir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // nothing to clear
+		}
 		return err
 	}
 	for _, e := range entries {
@@ -480,6 +493,13 @@ func (m *Manager) filterActiveBlockersLocked(t *Task) *Task {
 	copy := *t
 	copy.BlockedBy = filtered
 	return &copy
+}
+
+// ensureDirLocked creates the task directory if it doesn't exist.
+// This makes all task tools resilient to directory deletion between sessions.
+// Caller must hold m.mu.
+func (m *Manager) ensureDirLocked() error {
+	return os.MkdirAll(m.dir, 0700)
 }
 
 // ─── High-watermark ───────────────────────────────────────────────────────────
@@ -533,6 +553,9 @@ func (m *Manager) saveLocked(t *Task) error {
 }
 
 func (m *Manager) saveOneFileLocked(path string, t *Task) error {
+	if err := m.ensureDirLocked(); err != nil {
+		return fmt.Errorf("ensure tasks dir: %w", err)
+	}
 	data, err := json.MarshalIndent(t, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal task %s: %w", t.ID, err)
