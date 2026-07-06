@@ -605,9 +605,11 @@ func (m *Manager) loadOneFileLocked(path string) (*Task, error) {
 var defaultSessionID string
 
 func init() {
-	// Stable per-process session ID: hostname-pid-timestamp.
+	// Per-process session ID with timestamp-first format so directories
+	// sort chronologically: YYYYMMDD-HHMMSS-hostname-pid.
 	host, _ := os.Hostname()
-	defaultSessionID = fmt.Sprintf("%s-%d-%d", host, os.Getpid(), time.Now().Unix())
+	defaultSessionID = fmt.Sprintf("%s-%s-%d",
+		time.Now().Format("20060102-150405"), host, os.Getpid())
 }
 
 // ResolveTaskListID picks the task-list identifier using a 3-level priority:

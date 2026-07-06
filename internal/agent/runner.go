@@ -388,7 +388,7 @@ func (r *Runner) RenderTeamRoster() string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Team lead: %s\n", r.teamMgr.LeadName()))
 	b.WriteString(fmt.Sprintf("%-4s %s %s %s\n",
-		"", padDisplay("Name", 16), padDisplay("Role", 20), "Status"))
+		"", padDisplay("Name", 18), padDisplay("Role", 26), "Status"))
 
 	for _, m := range roster {
 		icon := statusIcon[m.Status]
@@ -399,8 +399,8 @@ func (r *Runner) RenderTeamRoster() string {
 		}
 		line := fmt.Sprintf("%s %s %s %s",
 			icon,
-			padDisplay(m.Name, 16),
-			padDisplay(m.Role, 20),
+			padDisplay(m.Name, 18),
+			padDisplay(m.Role, 26),
 			label)
 		if m.Model != "" {
 			line += fmt.Sprintf(" (%s)", m.Model)
