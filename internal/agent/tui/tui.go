@@ -26,14 +26,14 @@ type thinkTickMsg struct{}
 
 // agentCommands 定义可用的斜杠命令及其描述。
 var agentCommands = map[string]string{
-	"/exit":   "退出程序",
-	"/q":      "退出程序（快捷方式）",
-	"/todo":   "显示待办任务列表",
-	"/task":   "显示持久化任务列表",
-	"/team":   "显示队友列表（名称、角色、状态）",
-	"/clear":  "清空会话上下文",
+	"/exit":     "退出程序",
+	"/q":        "退出程序（快捷方式）",
+	"/todo":     "显示待办任务列表",
+	"/task":     "显示持久化任务列表",
+	"/team":     "显示队友列表（名称、角色、状态）",
+	"/clear":    "清空会话上下文",
 	"/sessions": "显示已保存的会话列表",
-	"/memctx": "输出上下文 /memctx [file]（* 快速导出；. 当前目录；自动补 .jsonl；非法路径回退到默认目录）",
+	"/memctx":   "输出上下文 /memctx [file]（* 快速导出；. 当前目录；自动补 .jsonl；非法路径回退到默认目录）",
 }
 
 // model 是 Bubble Tea 的核心模型，持有 UI 组件状态和展示内容。

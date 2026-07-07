@@ -37,11 +37,11 @@ type Teammate struct {
 // Protocol messages (shutdown_request/response, plan_request/response) use
 // the RequestID and Approve fields for request-response correlation.
 type Message struct {
-	Type      string `json:"type"`                   // "message" | "broadcast" | "shutdown_request" | "shutdown_response" | "plan_request" | "plan_response"
+	Type      string `json:"type"` // "message" | "broadcast" | "shutdown_request" | "shutdown_response" | "plan_request" | "plan_response"
 	From      string `json:"from"`
 	Content   string `json:"content"`
-	RequestID string `json:"request_id,omitempty"`   // 关联请求 ID（协议消息使用）
-	Approve   *bool  `json:"approve,omitempty"`      // 批准/拒绝（响应消息使用，指针区分未设置与 false）
+	RequestID string `json:"request_id,omitempty"` // 关联请求 ID（协议消息使用）
+	Approve   *bool  `json:"approve,omitempty"`    // 批准/拒绝（响应消息使用，指针区分未设置与 false）
 	Timestamp int64  `json:"timestamp"`
 }
 

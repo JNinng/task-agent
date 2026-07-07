@@ -567,5 +567,3 @@ func padDisplay(s string, width int) string {
 	}
 	return s + strings.Repeat(" ", width-dw)
 }
-
-
