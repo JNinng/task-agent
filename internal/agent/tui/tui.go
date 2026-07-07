@@ -90,9 +90,16 @@ func NewTUI(session agent.Session, opts ...tea.ProgramOption) *tea.Program {
 
 	content := []string{}
 	if session.SessionID() != "" && len(session.Messages()) > 0 {
-		content = append(content, styleDim.Render(fmt.Sprintf(
-			"[Resumed session %s — %d messages]",
-			session.SessionID(), len(session.Messages()))))
+		workdir := session.SessionWorkdir()
+		if workdir != "" {
+			content = append(content, styleDim.Render(fmt.Sprintf(
+				"[Resumed session %s — %d messages, workdir: %s]",
+				session.SessionID(), len(session.Messages()), workdir)))
+		} else {
+			content = append(content, styleDim.Render(fmt.Sprintf(
+				"[Resumed session %s — %d messages]",
+				session.SessionID(), len(session.Messages()))))
+		}
 		// Reconstruct display from restored conversation history so the
 		// user can see previous exchanges in the viewport.
 		prevRole := ""

@@ -11,10 +11,10 @@ import (
 	"task-agent/internal/logger"
 )
 
-func Run(ctx context.Context) error {
+func Run(ctx context.Context, resumeID string) error {
 	logger.Info("Agent TUI starting")
 
-	ag, err := agent.New()
+	ag, err := agent.New(resumeID)
 	if err != nil {
 		logger.Error("Agent initialization failed", zap.Error(err))
 		return fmt.Errorf("agent init: %w", err)

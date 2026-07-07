@@ -34,6 +34,7 @@ const (
 type SessionMetadata struct {
 	SessionID    string `json:"session_id"`
 	Model        string `json:"model"`
+	Workdir      string `json:"workdir"`
 	CreatedAt    int64  `json:"created_at"`
 	UpdatedAt    int64  `json:"updated_at"`
 	MessageCount int    `json:"message_count"`

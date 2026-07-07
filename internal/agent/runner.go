@@ -29,10 +29,11 @@ type Runner struct {
 	sessionStore    *SessionStore         // persists conversation to disk; nil if disabled
 	sessionID       string                // current session identifier
 	sessionMeta     *SessionMetadata      // cached session metadata (lazy on first save)
+	workdir         string                // working directory at session creation time
 }
 
-func NewRunner(ag *Agent, cfg CompactionConfig, bgMgr *background.Manager, teamMgr *team.TeammateManager, sessionStore *SessionStore, setCompact func(func() (string, error))) *Runner {
-	r := &Runner{agent: ag, compactCfg: cfg, bgMgr: bgMgr, teamMgr: teamMgr, sessionStore: sessionStore}
+func NewRunner(ag *Agent, cfg CompactionConfig, bgMgr *background.Manager, teamMgr *team.TeammateManager, sessionStore *SessionStore, setCompact func(func() (string, error)), workdir string) *Runner {
+	r := &Runner{agent: ag, compactCfg: cfg, bgMgr: bgMgr, teamMgr: teamMgr, sessionStore: sessionStore, workdir: workdir}
 	setCompact(r.compact)
 	return r
 }
@@ -381,6 +382,7 @@ func (r *Runner) saveSession() {
 		r.sessionMeta = &SessionMetadata{
 			SessionID: r.sessionID,
 			Model:     string(r.agent.model),
+			Workdir:   r.workdir,
 			CreatedAt: time.Now().Unix(),
 		}
 	}
@@ -393,15 +395,10 @@ func (r *Runner) saveSession() {
 	}
 }
 
-// Resume attempts to load the most recent saved session.
-// Returns true if a session was restored.
-func (r *Runner) Resume() bool {
-	if r.sessionStore == nil {
-		return false
-	}
-
-	sessionID, err := r.sessionStore.LatestSessionID()
-	if err != nil || sessionID == "" {
+// ResumeSession attempts to load a specific saved session by ID.
+// Returns true if the session was restored, false if not found or empty.
+func (r *Runner) ResumeSession(sessionID string) bool {
+	if r.sessionStore == nil || sessionID == "" {
 		return false
 	}
 
@@ -415,6 +412,11 @@ func (r *Runner) Resume() bool {
 	r.messages = messages
 	r.sessionID = sessionID
 	r.sessionMeta = meta
+	// Restore workdir from saved metadata so RenderSessions and
+	// SessionWorkdir reflect the original working directory.
+	if meta != nil && meta.Workdir != "" {
+		r.workdir = meta.Workdir
+	}
 	return true
 }
 
@@ -422,6 +424,12 @@ func (r *Runner) Resume() bool {
 // if session persistence is not active.
 func (r *Runner) SessionID() string {
 	return r.sessionID
+}
+
+// SessionWorkdir returns the working directory of the current session,
+// or empty string if not set.
+func (r *Runner) SessionWorkdir() string {
+	return r.workdir
 }
 
 // RenderSessions returns a formatted list of saved sessions.
@@ -439,8 +447,8 @@ func (r *Runner) RenderSessions() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-30s %10s  %s\n", "Session ID", "Messages", "Last Updated"))
-	b.WriteString(strings.Repeat("-", 60) + "\n")
+	b.WriteString(fmt.Sprintf("%-30s %-25s %6s  %s\n", "Session ID", "Workdir", "Msgs", "Last Updated"))
+	b.WriteString(strings.Repeat("-", 90) + "\n")
 	for _, s := range sessions {
 		mark := " "
 		if s.SessionID == r.sessionID {
@@ -452,7 +460,11 @@ func (r *Runner) RenderSessions() string {
 		} else {
 			updated = "-"
 		}
-		b.WriteString(fmt.Sprintf("%s%-30s %5d  %s\n", mark, s.SessionID, s.MessageCount, updated))
+		workdir := s.Workdir
+		if len(workdir) > 24 {
+			workdir = "..." + workdir[len(workdir)-21:]
+		}
+		b.WriteString(fmt.Sprintf("%s%-30s %-25s %5d  %s\n", mark, s.SessionID, workdir, s.MessageCount, updated))
 	}
 	return b.String()
 }

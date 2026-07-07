@@ -1,10 +1,13 @@
 ﻿package agent
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -48,7 +51,7 @@ func envOrSettings(envKey, settingsKey string, settingsEnv map[string]string) st
 	return settingsEnv[settingsKey]
 }
 
-func New() (*Agent, error) {
+func New(resumeID string) (*Agent, error) {
 	settingsEnv := loadSettings(ClaudeSettingsPath())
 
 	modelID := envOrSettings("MODEL_ID", "ANTHROPIC_MODEL", settingsEnv)
@@ -183,15 +186,27 @@ func New() (*Agent, error) {
 
 	ag.Runner = NewRunner(ag, compactCfg, bgMgr, teamMgr, sessionStore, func(fn func() (string, error)) {
 		compactTrigger = fn
-	})
+	}, cwd)
 
-	// Try to restore the most recent session. If successful, the
-	// session ID and message history are loaded from disk.
+	// Conditionally resume session based on the --resume flag.
+	// No flag → fresh start (sessionID stays as the new generated ID).
+	// "latest" → resume most recent; "__select__" → interactive picker.
 	ag.Runner.sessionID = sessionID
-	if ag.Runner.Resume() {
-		logger.Info("Resumed previous session",
-			zap.String("session_id", ag.Runner.sessionID),
-			zap.Int("messages", len(ag.Runner.messages)))
+	if resumeID == "latest" {
+		if id, err := sessionStore.LatestSessionID(); err == nil && id != "" {
+			resumeID = id
+		} else {
+			resumeID = ""
+		}
+	} else if resumeID == "__select__" {
+		resumeID = interactiveSessionPicker(sessionStore)
+	}
+	if resumeID != "" {
+		if ag.Runner.ResumeSession(resumeID) {
+			logger.Info("Resumed session",
+				zap.String("session_id", ag.Runner.sessionID),
+				zap.Int("messages", len(ag.Runner.messages)))
+		}
 	}
 
 	ag.registry = tools.NewRegistry(
@@ -222,4 +237,58 @@ func New() (*Agent, error) {
 	)
 
 	return ag, nil
+}
+
+// interactiveSessionPicker lists saved sessions and prompts the user to
+// select one interactively via stdin. Returns the chosen session ID, or
+// empty string if the user cancels (Enter on empty input) or no sessions
+// are available.
+func interactiveSessionPicker(store *SessionStore) string {
+	sessions, err := store.ListSessions()
+	if err != nil || len(sessions) == 0 {
+		fmt.Println("\nNo saved sessions. Starting fresh.")
+		return ""
+	}
+
+	fmt.Println("\nAvailable sessions:")
+	fmt.Printf("  %3s  %-30s %-25s %5s  %s\n", "#", "Session ID", "Workdir", "Msgs", "Last Updated")
+	fmt.Printf("  %s\n", strings.Repeat("-", 90))
+	for i, s := range sessions {
+		workdir := s.Workdir
+		if len(workdir) > 24 {
+			workdir = "..." + workdir[len(workdir)-21:]
+		}
+		var updated string
+		if s.UpdatedAt > 0 {
+			updated = time.Unix(s.UpdatedAt, 0).Format("2006-01-02 15:04")
+		} else {
+			updated = "-"
+		}
+		fmt.Printf("  %3d  %-30s %-25s %5d  %s\n", i+1, s.SessionID, workdir, s.MessageCount, updated)
+	}
+
+	fmt.Print("\nSelect session (number or ID, Enter=cancel): ")
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		return ""
+	}
+	input := strings.TrimSpace(scanner.Text())
+	if input == "" {
+		return ""
+	}
+
+	// Try as number first (1-based index).
+	if n, err := strconv.Atoi(input); err == nil && n >= 1 && n <= len(sessions) {
+		return sessions[n-1].SessionID
+	}
+
+	// Treat as session ID (allow partial prefix match for convenience).
+	for _, s := range sessions {
+		if strings.HasPrefix(s.SessionID, input) {
+			return s.SessionID
+		}
+	}
+
+	fmt.Printf("No session matching %q. Starting fresh.\n", input)
+	return ""
 }

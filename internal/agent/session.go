@@ -38,6 +38,10 @@ type Session interface {
 	// if session persistence is not active.
 	SessionID() string
 
+	// SessionWorkdir returns the working directory of the current session,
+	// or empty string if not set.
+	SessionWorkdir() string
+
 	// RenderSessions returns a formatted list of saved sessions.
 	RenderSessions() string
 

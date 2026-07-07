@@ -27,6 +27,7 @@ var rootCmd = &cobra.Command{
 	Short: "Go service template",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		configPath, _ := cmd.Flags().GetString("config")
+		resumeID, _ := cmd.Flags().GetString("resume")
 
 		cfg, err := config.Init(configPath)
 		if err != nil {
@@ -60,7 +61,7 @@ var rootCmd = &cobra.Command{
 			zap.String("env", cfg.App.Env),
 		)
 
-		if err := app.Run(ctx); err != nil {
+		if err := app.Run(ctx, resumeID); err != nil {
 			logger.Error("Application error", zap.Error(err))
 		}
 
@@ -78,4 +79,6 @@ func Execute() {
 
 func init() {
 	rootCmd.Flags().StringP("config", "c", defaultConfigPath(), "Config file path")
+	rootCmd.Flags().StringP("resume", "r", "", "恢复历史会话（留空=选择，latest=最近，或指定 session ID）")
+	rootCmd.Flags().Lookup("resume").NoOptDefVal = "__select__"
 }
